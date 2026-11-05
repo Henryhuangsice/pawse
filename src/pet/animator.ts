@@ -1,5 +1,5 @@
 import type { PetKind } from '../shared/config';
-import { META, PX, type PetMeta } from './art';
+import { ASTRO_SPRITE, META, PX, type PetMeta, type SpriteSheets } from './art';
 
 export type AnimMode = 'idle' | 'walk' | 'sleep' | 'drag';
 export type Reaction = 'jump' | 'spin' | 'happy' | 'shake' | 'startle' | 'wave' | 'land' | 'hop' | 'powerup';
@@ -13,7 +13,6 @@ const PART_NAMES = [
   'root', 'body', 'head', 'tail', 'tail2', 'earL', 'earR', 'legL', 'legR', 'armL', 'armR',
   'eyeL', 'eyeR', 'eyes', 'eyesHappy', 'eyesClosed', 'blush', 'mouth', 'mouthOpen', 'shadow',
   'aura', 'aura2', 'ring', 'sparks', 'backdrop', 'trail', 'trail2', 'starsA', 'starsB',
-  'flameL', 'flameR', 'flutter',
 ] as const;
 type PartName = (typeof PART_NAMES)[number];
 
@@ -26,10 +25,10 @@ const q = (v: number) => Math.round(v / PX) * PX; // snap to the pixel grid
 const show = (el: SVGGraphicsElement | undefined, on: boolean) => el && (el.style.display = on ? '' : 'none');
 
 /**
- * Procedural animation for a part-rigged SVG pet. No sprite sheets:
- * breathing, blinking, gaze, walk cycle, tail, ears, squash & stretch and drag swing are
- * computed per frame from the current mode + transient reactions, then applied according
- * to the pet's render style (pixel-snapped, flat, or power-up).
+ * Procedural animation for a part-rigged SVG pet: breathing, blinking, gaze, walk cycle,
+ * tail, ears, squash & stretch and drag swing are computed per frame from the current
+ * mode + transient reactions, then applied according to the pet's render style
+ * (pixel-snapped, power-up, or sprite — footage clips moved as a whole).
  */
 export class Animator {
   mode: AnimMode = 'idle';
@@ -54,6 +53,13 @@ export class Animator {
   private lastStep = 0;
   private power = 0;
   private powerHoldUntil = 0;
+  private sprite: {
+    sheets: SpriteSheets;
+    imgs: Record<string, SVGImageElement>;
+    clip: string;
+    frame: number;
+    waveUntil: number;
+  } | null = null;
 
   constructor(svg: SVGSVGElement, kind: PetKind) {
     for (const n of PART_NAMES) {
@@ -63,6 +69,11 @@ export class Animator {
     this.powerOn = [...svg.querySelectorAll<SVGGraphicsElement>('[data-power]')];
     this.powerOff = [...svg.querySelectorAll<SVGGraphicsElement>('[data-unpower]')];
     this.m = META[kind];
+    if (this.m.style === 'sprite') {
+      const imgs: Record<string, SVGImageElement> = {};
+      svg.querySelectorAll<SVGImageElement>('image[data-clip]').forEach((el) => (imgs[el.dataset.clip!] = el));
+      this.sprite = { sheets: ASTRO_SPRITE, imgs, clip: 'idle', frame: 0, waveUntil: 0 };
+    }
   }
 
   lookAt(x: number, y: number) {
@@ -75,6 +86,11 @@ export class Animator {
     if (type === 'happy' || type === 'wave') this.happyUntil = now + DURATION[type] + 300;
     if (type === 'startle') this.surpriseUntil = now + 700;
     if (type === 'powerup') this.powerHoldUntil = now + 3200;
+    const sp = this.sprite;
+    if (sp && type === 'wave') {
+      sp.waveUntil = now + (sp.sheets.clips.wave / sp.sheets.fps) * 1000;
+      this.happyUntil = sp.waveUntil;
+    }
   }
 
   happy(ms: number, now = performance.now()) {
@@ -163,6 +179,11 @@ export class Animator {
     this.gaze.x += (gz.x * Math.sign(this.flip || 1) - this.gaze.x) * Math.min(1, dt * 10);
     this.gaze.y += (gz.y - this.gaze.y) * Math.min(1, dt * 10);
 
+    if (this.sprite) {
+      this.applySprite({ T, dt, now, jumpY, sx, sy, spinX, quake, walking, dragging, sleeping, happy });
+      return;
+    }
+
     // blink
     if (this.nextBlink === 0) this.nextBlink = now + 1500;
     if (now > this.nextBlink) {
@@ -185,21 +206,18 @@ export class Animator {
       return;
     }
 
-    // ---- smooth styles (flat / power) ----
-    // flyers hover on their thrusters and only touch down to nap
-    const fly = !!m.fly;
-    const lift = !fly ? 0 : sleeping ? -8 : 3 + 3 * Math.sin(T * (walking ? 4.5 : 2.6));
+    // ---- smooth style (power) ----
     if (p.root) {
-      const lean = walking ? (fly ? 12 : 4) * this.dir : 0;
+      const lean = walking ? 4 * this.dir : 0;
       const jx = quake ? (Math.random() - 0.5) * 2 * quake : 0;
       p.root.setAttribute('transform', [
-        tr(jx, -(jumpY + (fly ? 0 : bob) + lift)),
+        tr(jx, -(jumpY + bob)),
         rot(this.swing.a + lean, dragging ? [60, 30] : m.root),
         scaleAt(this.flip * spinX * sx, sy, m.root),
       ].join(' '));
     }
     if (p.shadow) {
-      const up = jumpY + Math.max(0, lift) * 2 + (dragging ? 30 : 0);
+      const up = jumpY + (dragging ? 30 : 0);
       const k = clamp(1 - up / 70, 0.35, 1);
       p.shadow.setAttribute('transform', scaleAt(k, k, [60, 113]));
     }
@@ -208,29 +226,8 @@ export class Animator {
 
     const legA = walking ? -Math.max(0, Math.sin(cyc)) * 4 : dragging ? 3 + Math.sin(T * 8) : 0;
     const legB = walking ? -Math.max(0, -Math.sin(cyc)) * 4 : dragging ? 3 - Math.sin(T * 8) : 0;
-    if (fly) {
-      // paws dangle in the air
-      const d = sleeping ? 0 : walking ? 10 : 4;
-      p.legL?.setAttribute('transform', rot(d * Math.sin(T * 3), m.legL));
-      p.legR?.setAttribute('transform', rot(d * Math.sin(T * 3 + 1.2), m.legR));
-    } else {
-      p.legL?.setAttribute('transform', tr(0, legA));
-      p.legR?.setAttribute('transform', tr(0, legB));
-    }
-
-    // thruster flames: flicker, boost when moving / hovered / happy, off while napping
-    for (const [part, x] of [['flameL', 40], ['flameR', 80]] as const) {
-      const el = p[part];
-      if (!el) continue;
-      show(el, !sleeping);
-      const boost = walking || this.hover || happy || dragging ? 1.45 : 1;
-      const h = boost * (1 + 0.18 * Math.sin(T * 31 + x) + 0.12 * Math.random());
-      el.setAttribute('transform', scaleAt(1 + 0.06 * Math.sin(T * 23 + x), h, [x, 86]));
-    }
-    if (p.flutter) {
-      const a = sleeping ? 2 : (walking ? 14 : 7) * Math.sin(T * (walking ? 9 : 4));
-      p.flutter.setAttribute('transform', rot(a, [70, 70]));
-    }
+    p.legL?.setAttribute('transform', tr(0, legA));
+    p.legR?.setAttribute('transform', tr(0, legB));
 
     if (m.armL && m.armR) {
       let aL = 4 * Math.sin(T * 2), aR = -4 * Math.sin(T * 2);
@@ -288,6 +285,50 @@ export class Animator {
       p.backdrop.setAttribute('transform', scaleAt(k, k, [60, 58]));
     }
     if (m.style === 'power') this.applyPower(T, dt, now, sleeping);
+  }
+
+  // ---------------- style: sprite ----------------
+  private applySprite(s: {
+    T: number; dt: number; now: number; jumpY: number; sx: number; sy: number; spinX: number; quake: number;
+    walking: boolean; dragging: boolean; sleeping: boolean; happy: boolean;
+  }) {
+    const sp = this.sprite!, p = this.p, m = this.m;
+    const { fw, fh, cols, fps, clips } = sp.sheets;
+
+    // pick the clip: wave > drift while travelling > idle float
+    const clip = s.now < sp.waveUntil && !s.sleeping ? 'wave' : s.walking ? 'side' : 'idle';
+    if (clip !== sp.clip) {
+      sp.imgs[sp.clip]?.style.setProperty('display', 'none');
+      sp.imgs[clip]?.style.removeProperty('display');
+      sp.clip = clip;
+      sp.frame = 0;
+    }
+    // footage plays at its own fps; slowed right down while napping
+    const speed = s.sleeping ? 0.25 : 1;
+    sp.frame = (sp.frame + s.dt * fps * speed) % clips[clip];
+    const f = Math.floor(sp.frame);
+    const img = sp.imgs[clip];
+    img?.setAttribute('x', String(-(f % cols) * fw));
+    img?.setAttribute('y', String(-Math.floor(f / cols) * fh));
+
+    // weightless hover; sinks down and tips back to nap
+    const lift = s.sleeping ? 1 : 5 + 3 * Math.sin(s.T * 1.4);
+    let tilt = 0;
+    if (s.walking) tilt = 6 * this.dir;
+    if (this.hover) tilt = 5 * this.gaze.x; // leans toward your cursor
+    if (s.sleeping) tilt = -14 + 2 * Math.sin(s.T * 0.6);
+    // the drift clip is a three-quarter view facing left; mirror it when heading right
+    const face = clip === 'side' ? -Math.sign(this.flip || 1) : 1;
+    const jx = s.quake ? (Math.random() - 0.5) * 2 * s.quake : 0;
+    p.root?.setAttribute('transform', [
+      tr(jx, -(s.jumpY + lift)),
+      rot(this.swing.a + tilt, s.dragging ? [60, 20] : m.body),
+      scaleAt(face * s.spinX * s.sx, s.sy, m.root),
+    ].join(' '));
+    if (p.shadow) {
+      const k = clamp(1 - (s.jumpY + lift * 2 + (s.dragging ? 30 : 0)) / 70, 0.35, 1);
+      p.shadow.setAttribute('transform', scaleAt(k, k, [60, 114]));
+    }
   }
 
   // ---------------- style: pixel ----------------

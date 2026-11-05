@@ -4,21 +4,29 @@ import type { PetKind } from '../shared/config';
  * Built-in pets are vector art split into named parts (`data-p="..."`).
  * The Animator moves those parts procedurally; each pet declares a render style:
  *   - pixel : original flying pixel cat with a synthwave trail. Grid-snapped, 12 fps, frame swaps.
- *   - flat  : original jetpack cat, flat design. Hovers on flickering thrusters, scarf flutters.
+ *   - sprite: astronaut cut from green-screen footage; clips are swapped, the sprite is moved as a whole.
  *   - power : sleek original fighter. Hover charges power → golden hair, geometric aura, speed lines.
  *
  * Elements with `data-power` fade in with the power level, `data-unpower` fade out.
  * Coordinate system: viewBox 0 0 120 120, ground line at y = 112.
  */
 
-export type RenderStyle = 'pixel' | 'flat' | 'power';
+export type RenderStyle = 'pixel' | 'sprite' | 'power';
+
+export interface SpriteSheets {
+  base: string;
+  fw: number;
+  fh: number;
+  cols: number;
+  fps: number;
+  /** clip name → frame count; each clip is `${base}${name}.webp`, frames laid out left-to-right in `cols` columns */
+  clips: Record<string, number>;
+}
 type Pt = [number, number];
 
 export interface PetMeta {
   style: RenderStyle;
   earTwitch: boolean;
-  /** Always airborne: hover bob, thruster flames, forward lean while moving. */
-  fly?: boolean;
   root: Pt;
   body: Pt;
   head: Pt;
@@ -41,11 +49,10 @@ export const META: Record<PetKind, PetMeta> = {
     root: [60, 112], body: [60, 112], head: [92, 60],
     legL: [44, 84], legR: [70, 84], eyeL: [84, 60], eyeR: [104, 60],
   },
-  jet: {
-    style: 'flat', earTwitch: true, fly: true,
-    root: [60, 112], body: [60, 96], head: [60, 66], tail: [72, 92],
-    earL: [46, 30], earR: [74, 30], legL: [53, 92], legR: [67, 92],
-    eyeL: [50, 49], eyeR: [70, 49],
+  astro: {
+    style: 'sprite', earTwitch: false,
+    root: [60, 110], body: [60, 70], head: [60, 14],
+    legL: [55, 100], legR: [65, 100], eyeL: [56, 26], eyeR: [64, 26],
   },
   human: {
     style: 'power', earTwitch: false,
@@ -167,68 +174,30 @@ function catSVG(): string {
   </g>`;
 }
 
-// ---------------------------------------------------------------- jetpack cat (original design)
+// ---------------------------------------------------------------- astronaut (sprite sheets)
 
-const J = {
-  fur: '#7f93ad', // blue-grey
-  furDark: '#61728b',
-  cream: '#eef1f5',
-  ink: '#23283a',
-  pink: '#f4a6b7',
-  pack: '#f7f7f4',
-  teal: '#2ec4b6',
-  scarf: '#ff5d73',
-  lens: '#9be7ff',
-  flame: '#ff8a3d',
-  flameCore: '#fff3b0',
+/**
+ * The astronaut is footage, not vector art: frames cut from a Pixabay green-screen clip
+ * (see scripts/make_astro_sprites.py) and packed into one sheet per clip. The Animator
+ * swaps clips (idle float / three-quarter drift / wave) and steps frames; the whole sprite
+ * is still moved by the shared root transform (hover, jumps, drag swing, sleep drift).
+ */
+export const ASTRO_SPRITE: SpriteSheets = {
+  base: '/pets/astro/',
+  fw: 200, fh: 300, cols: 12, fps: 12,
+  clips: { idle: 84, side: 108, wave: 48 },
 };
 
-function jetSVG(): string {
-  const flame = (x: number, part: string) => `
-    <g data-p="${part}">
-      <path d="M${x - 5} 86 C ${x - 5} 96, ${x} 104, ${x} 110 C ${x} 104, ${x + 5} 96, ${x + 5} 86 Z" fill="${J.flame}"/>
-      <path d="M${x - 2.6} 86 C ${x - 2.6} 92, ${x} 97, ${x} 100 C ${x} 97, ${x + 2.6} 92, ${x + 2.6} 86 Z" fill="${J.flameCore}"/>
-    </g>`;
-  const thruster = (x: number) => `
-    <rect x="${x - 6}" y="60" width="12" height="26" rx="6" fill="${J.pack}"/>
-    <rect x="${x - 6}" y="66" width="12" height="3" fill="${J.teal}"/>
-    <path d="M${x - 4.5} 84 L${x + 4.5} 84 L${x + 5.5} 89 L${x - 5.5} 89 Z" fill="${J.ink}"/>`;
+function astroSVG(): string {
+  const { base, fw, fh, cols, clips } = ASTRO_SPRITE;
+  const sheets = Object.entries(clips).map(([name, n]) => {
+    const w = fw * cols, h = fh * Math.ceil(n / cols);
+    return `<image data-clip="${name}" href="${base}${name}.webp" width="${w}" height="${h}"${name === 'idle' ? '' : ' style="display:none"'}/>`;
+  }).join('');
   return `
-  <ellipse data-p="shadow" cx="60" cy="113" rx="20" ry="3" fill="${J.ink}" opacity=".14"/>
+  <g data-p="shadow"><ellipse cx="60" cy="114" rx="17" ry="3.2" fill="#1b2140" opacity=".16"/></g>
   <g data-p="root">
-    ${flame(40, 'flameL')}
-    ${flame(80, 'flameR')}
-    <g data-p="pack">${thruster(40)}${thruster(80)}<rect x="44" y="70" width="32" height="5" rx="2.5" fill="${J.teal}"/></g>
-    <g data-p="tail"><path d="M72 92 C 88 94, 96 80, 90 66" fill="none" stroke="${J.fur}" stroke-width="7" stroke-linecap="round"/><path d="M92.6 72 C 92 68.5, 91 67, 90 66" fill="none" stroke="${J.furDark}" stroke-width="7" stroke-linecap="round"/></g>
-    <g data-p="legL"><rect x="49" y="92" width="8" height="12" rx="4" fill="${J.cream}"/></g>
-    <g data-p="legR"><rect x="63" y="92" width="8" height="12" rx="4" fill="${J.cream}"/></g>
-    <g data-p="body">
-      <path d="M46 96 Q43 70 60 67 Q77 70 74 96 Q60 101 46 96 Z" fill="${J.fur}"/>
-      <ellipse cx="60" cy="86" rx="8.5" ry="9.5" fill="${J.cream}"/>
-      <path d="M49 72 L55 93 M71 72 L65 93" stroke="${J.teal}" stroke-width="3" stroke-linecap="round"/>
-    </g>
-    <g data-p="flutter"><path d="M70 68 C 79 69, 85 64, 94 68 L92 74 C 84 71, 79 75, 70 73.5 Z" fill="${J.scarf}"/></g>
-    <path d="M46 65 Q60 72 74 65 L74.5 70.5 Q60 77.5 45.5 70.5 Z" fill="${J.scarf}"/>
-    <g data-p="head">
-      <g data-p="earL"><path d="M35 42 L38 13 L56 28 Z" fill="${J.fur}"/><path d="M40 35 L41.5 21 L50.5 28.5 Z" fill="${J.pink}"/></g>
-      <g data-p="earR"><path d="M85 42 L82 13 L64 28 Z" fill="${J.fur}"/><path d="M80 35 L78.5 21 L69.5 28.5 Z" fill="${J.pink}"/></g>
-      <path d="M32 47 Q32 24 60 24 Q88 24 88 47 Q88 64 60 68 Q32 64 32 47 Z" fill="${J.fur}"/>
-      <path d="M53 24.6 L60 35 L67 24.6 Z" fill="${J.furDark}"/>
-      <path d="M32.6 37 Q60 28 87.4 37 L87.6 41.5 Q60 32.5 32.4 41.5 Z" fill="${J.ink}"/>
-      <circle cx="48.5" cy="34.5" r="6.6" fill="${J.lens}" stroke="${J.ink}" stroke-width="2.2"/>
-      <circle cx="71.5" cy="34.5" r="6.6" fill="${J.lens}" stroke="${J.ink}" stroke-width="2.2"/>
-      <path d="M45.5 32 Q47 30.5 49 30.6 M68.5 32 Q70 30.5 72 30.6" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/>
-      <g data-p="eyes">
-        <g data-p="eyeL"><ellipse cx="50" cy="49" rx="3.4" ry="4.2" fill="${J.ink}"/><circle cx="51.2" cy="47.6" r="1.1" fill="#fff"/></g>
-        <g data-p="eyeR"><ellipse cx="70" cy="49" rx="3.4" ry="4.2" fill="${J.ink}"/><circle cx="71.2" cy="47.6" r="1.1" fill="#fff"/></g>
-      </g>
-      <g data-p="eyesHappy" style="display:none"><path d="M46.5 50 Q50 45.5 53.5 50 M66.5 50 Q70 45.5 73.5 50" fill="none" stroke="${J.ink}" stroke-width="2.2" stroke-linecap="round"/></g>
-      <path d="M49.5 57 Q60 51.5 70.5 57 Q68.5 65.5 60 65.5 Q51.5 65.5 49.5 57 Z" fill="${J.cream}"/>
-      <path d="M57.6 56 L62.4 56 L60 58.6 Z" fill="${J.pink}" stroke="${J.pink}" stroke-width="1.2" stroke-linejoin="round"/>
-      <g data-p="mouth"><path d="M56.5 60 Q58.3 61.8 60 60 Q61.7 61.8 63.5 60" fill="none" stroke="${J.ink}" stroke-width="1.4" stroke-linecap="round"/></g>
-      <g data-p="mouthOpen" style="display:none"><path d="M56 59.5 Q60 61 64 59.5 Q63 66 60 66 Q57 66 56 59.5 Z" fill="${J.scarf}" stroke="${J.ink}" stroke-width="1.4" stroke-linejoin="round"/></g>
-      <path d="M30 55 L44 57 M30 60.5 L44 60 M90 55 L76 57 M90 60.5 L76 60" stroke="${J.ink}" stroke-width="1.1" stroke-linecap="round" opacity=".45"/>
-    </g>
+    <svg x="20" y="-6" width="80" height="120" viewBox="0 0 ${fw} ${fh}" style="overflow:hidden">${sheets}</svg>
   </g>`;
 }
 
@@ -307,7 +276,7 @@ function fighterSVG(): string {
   </g>`;
 }
 
-const BUILD: Record<PetKind, () => string> = { cat: catSVG, jet: jetSVG, human: fighterSVG };
+const BUILD: Record<PetKind, () => string> = { cat: catSVG, astro: astroSVG, human: fighterSVG };
 
 export function petSVG(kind: PetKind): string {
   return `<svg class="pet-svg style-${META[kind].style}" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" overflow="visible">${BUILD[kind]()}</svg>`;

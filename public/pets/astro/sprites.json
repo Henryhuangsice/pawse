@@ -1,0 +1,20 @@
+{
+ "fw": 200,
+ "fh": 300,
+ "cols": 12,
+ "fps": 12,
+ "clips": {
+  "idle": {
+   "frames": 84,
+   "rows": 7
+  },
+  "side": {
+   "frames": 108,
+   "rows": 9
+  },
+  "wave": {
+   "frames": 48,
+   "rows": 4
+  }
+ }
+}
