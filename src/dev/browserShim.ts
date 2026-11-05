@@ -11,6 +11,8 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
   const listeners = new Map<string, number[]>();
   let nextId = 1;
   const label = location.pathname.includes('settings') ? 'settings' : 'pet';
+  let lastInput = Date.now();
+  for (const ev of ['mousemove', 'mousedown', 'keydown']) window.addEventListener(ev, () => (lastInput = Date.now()));
 
   const emit = (event: string, payload: unknown) =>
     (listeners.get(event) ?? []).forEach((id) => callbacks.get(id)?.({ event, id, payload }));
@@ -35,6 +37,20 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
       case 'plugin:event|emit':
       case 'plugin:event|emit_to':
         emit(args.event, args.payload);
+        return null;
+      case 'get_presence':
+        // window.__shimPresence lets you fake an app in front / being away while testing
+        return { idle: (Date.now() - lastInput) / 1000, front: null, ...((window as any).__shimPresence ?? {}) };
+      case 'list_apps':
+        return ['Calendar', 'Notes', 'Safari', 'Slack', 'WeChat', 'Visual Studio Code'].map((name) => ({
+          name, path: `/Applications/${name}.app`,
+        }));
+      case 'launch':
+        console.info('[shim] launch', args.target);
+        return null;
+      case 'get_autostart': return localStorage.getItem('pawse-autostart') === '1';
+      case 'set_autostart':
+        localStorage.setItem('pawse-autostart', args.enabled ? '1' : '0');
         return null;
       default:
         console.debug('[shim] invoke', cmd, args);

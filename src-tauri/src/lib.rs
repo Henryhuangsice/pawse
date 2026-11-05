@@ -6,10 +6,17 @@
 //! to the webview (so the pet can look at you even when you're not touching it), and turns
 //! mouse capture back on only while the cursor is over one of the "hit regions" the frontend
 //! reports (the pet, its speech bubble, its menu).
+//!
+//! M2 adds presence sensing (keyboard/mouse idle time + frontmost app, see `system.rs`),
+//! a quick launcher, launch-at-login and a global shortcut that opens the launcher.
+
+mod system;
 
 use std::{fs, path::PathBuf, sync::Mutex, thread, time::Duration};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_global_shortcut::ShortcutState;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -19,6 +26,8 @@ use tauri::{
 const PET: &str = "pet";
 const SETTINGS: &str = "settings";
 const TRAY: &str = "main";
+/// Opens the launcher next to the pet. ⌃⌥P on macOS, Ctrl+Alt+P elsewhere.
+const LAUNCHER_SHORTCUT: &str = "ctrl+alt+KeyP";
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 struct Rect {
@@ -112,6 +121,44 @@ fn set_locale(app: AppHandle, lang: String) -> Result<(), String> {
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+#[derive(Serialize)]
+struct Presence {
+    /// Seconds since the last keyboard / mouse input anywhere on the system.
+    idle: f64,
+    front: Option<system::FrontWindow>,
+}
+
+#[tauri::command]
+fn get_presence() -> Presence {
+    Presence { idle: system::idle_seconds(), front: system::front_window() }
+}
+
+#[tauri::command]
+fn list_apps() -> Vec<system::AppEntry> {
+    system::list_apps()
+}
+
+#[tauri::command]
+fn launch(target: String) -> Result<(), String> {
+    let target = target.trim();
+    if target.is_empty() {
+        return Err("empty target".into());
+    }
+    system::launch(target).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_autostart(app: AppHandle) -> bool {
+    app.autolaunch().is_enabled().unwrap_or(false)
+}
+
+#[tauri::command]
+fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let al = app.autolaunch();
+    let r = if enabled { al.enable() } else { al.disable() };
+    r.map_err(|e| e.to_string())
 }
 
 // ---------------- helpers ----------------
@@ -208,6 +255,19 @@ fn spawn_cursor_loop(app: AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_shortcuts([LAUNCHER_SHORTCUT])
+                .expect("valid launcher shortcut")
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == ShortcutState::Pressed {
+                        let _ = set_pet_visible(app, Some(true));
+                        let _ = app.emit_to(EventTarget::webview_window(PET), "open-launcher", ());
+                    }
+                })
+                .build(),
+        )
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             set_hit_regions,
@@ -217,7 +277,12 @@ pub fn run() {
             open_settings,
             toggle_pet,
             set_locale,
-            quit_app
+            quit_app,
+            get_presence,
+            list_apps,
+            launch,
+            get_autostart,
+            set_autostart
         ])
         .setup(|app| {
             // A pet is not a "real" app window: no Dock icon, lives in the menu bar tray.

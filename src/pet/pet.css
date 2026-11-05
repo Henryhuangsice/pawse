@@ -184,3 +184,27 @@ html, body {
   20% { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* reminder bubble with buttons */
+.bubble.asking { max-width: 250px; padding: 10px 12px; }
+.bubble-actions { display: flex; gap: 6px; margin-top: 8px; }
+.bubble-actions button {
+  flex: 1;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(30, 20, 50, 0.06);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bubble-actions button:hover { background: rgba(30, 20, 50, 0.12); }
+.bubble-actions button.primary { background: var(--accent); color: var(--accent-ink); }
+.bubble-actions button.primary:hover { filter: brightness(1.05); }
+
+/* launcher */
+.menu-launch { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 0 2px; }
+.menu-launch button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-empty { padding: 4px 10px 6px; font-size: 12px; color: var(--muted); }

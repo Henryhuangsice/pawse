@@ -2,17 +2,24 @@ import './pet.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { loadConfig, onConfigChange, saveConfig, PET_KINDS, type AppConfig, type PetKind } from '../shared/config';
-import { line, petName, setLang, t } from '../shared/i18n';
+import {
+  loadConfig, onConfigChange, saveConfig, LAUNCHER_KEY, PET_KINDS,
+  type AppConfig, type PetKind, type ReminderKind,
+} from '../shared/config';
+import { line, locale, petName, setLang, t } from '../shared/i18n';
 import { Animator, type Reaction } from './animator';
 import { petSVG } from './art';
+import { Companion, type CompanionEvent, type Presence } from './companion';
 import { openRoamEditor } from './roamEditor';
 
 const BASE = 120; // pet art size in px at scale 1
+const PRESENCE_EVERY = 5000; // ms between presence samples
+const ASK_TIMEOUT = 60_000; // a reminder bubble left alone this long counts as ignored
 const WALK_SPEED = 62; // px/s at scale 1
 
 type State = 'idle' | 'walk' | 'sleep' | 'drag' | 'return';
 interface Box { x: number; y: number; w: number; h: number }
+interface AskAction { label: string; primary?: boolean; run: () => void }
 
 const $ = <T extends HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
 const rand = (a: number, b: number) => a + Math.random() * (b - a);
@@ -44,6 +51,11 @@ class Pet {
   bubbleUntil = 0;
   lastSentHit = '';
   lastHitAt = 0;
+  /** set while a bubble with buttons (a reminder) is up; called if it times out */
+  askTimeout: (() => void) | null = null;
+  /** the window you're working in (overlay coords), for steering clear of it */
+  frontBox: Box | null = null;
+  quiet = false;
 
   petEl = $<HTMLDivElement>('#pet');
   artEl = $<HTMLDivElement>('#pet-art');
@@ -153,14 +165,33 @@ class Pet {
       if (Math.random() < 0.4) this.say(line('sleep', this.cfg.pet.kind));
       return;
     }
-    if (r < 0.6) {
-      const b = this.bounds();
-      this.target = { x: rand(b.minX, b.maxX), y: rand(b.minY, b.maxY) };
+    if (r < 0.6 || this.coversFront(this.x, this.y)) {
+      this.target = this.pickSpot();
       this.setState('walk');
       return;
     }
     if (r < 0.7) this.anim.react('hop');
     this.setState('idle', rand(2, 5));
+  }
+
+  /** Random spot in the roam area, preferring ones that don't cover the active window. */
+  pickSpot() {
+    const b = this.bounds();
+    let spot = { x: rand(b.minX, b.maxX), y: rand(b.minY, b.maxY) };
+    for (let i = 0; i < 12 && this.coversFront(spot.x, spot.y); i++) {
+      spot = { x: rand(b.minX, b.maxX), y: rand(b.minY, b.maxY) };
+    }
+    return spot;
+  }
+
+  coversFront(x: number, y: number) {
+    const f = this.frontBox;
+    if (!f || !this.cfg.avoidActiveWindow) return false;
+    // a window covering (nearly) the whole roam area can't be avoided — don't keep fleeing
+    const r = this.roamPx();
+    if (f.x <= r.x && f.y <= r.y && f.x + f.w >= r.x + r.w && f.y + f.h >= r.y + r.h) return false;
+    const s = this.size;
+    return x + s * 0.8 > f.x && x + s * 0.2 < f.x + f.w && y + s * 0.8 > f.y && y + s * 0.2 < f.y + f.h;
   }
 
   walkBack() {
@@ -311,11 +342,39 @@ class Pet {
   }
 
   // ---------- bubble / fx ----------
+  /** Casual speech. Never talks over a reminder that is waiting for an answer. */
   say(text: string, ms = 3200) {
+    if (this.askTimeout) return;
     this.bubbleEl.textContent = text;
-    this.bubbleEl.classList.remove('hidden');
+    this.bubbleEl.classList.remove('hidden', 'asking');
     this.bubbleUntil = performance.now() + ms;
     this.anim.talk(Math.min(1200, 120 * text.length));
+  }
+
+  /** A bubble with buttons; `onTimeout` runs if nobody answers. */
+  ask(text: string, actions: AskAction[], onTimeout: () => void, ms = ASK_TIMEOUT) {
+    this.endAsk();
+    this.bubbleEl.innerHTML = `<div class="bubble-text"></div><div class="bubble-actions"></div>`;
+    this.bubbleEl.querySelector('.bubble-text')!.textContent = text;
+    const row = this.bubbleEl.querySelector('.bubble-actions')!;
+    for (const a of actions) {
+      const b = document.createElement('button');
+      b.textContent = a.label;
+      if (a.primary) b.className = 'primary';
+      b.addEventListener('click', () => { this.endAsk(); a.run(); });
+      row.appendChild(b);
+    }
+    this.bubbleEl.classList.remove('hidden');
+    this.bubbleEl.classList.add('asking');
+    this.bubbleUntil = performance.now() + ms;
+    this.askTimeout = onTimeout;
+    this.anim.talk(Math.min(1200, 120 * text.length));
+  }
+
+  endAsk() {
+    this.askTimeout = null;
+    this.bubbleEl.classList.add('hidden');
+    this.bubbleEl.classList.remove('asking');
   }
 
   spawnFx(cls: string, text: string, dx = 0) {
@@ -346,6 +405,11 @@ class Pet {
         (k) => `<button data-kind="${k}" class="${k === kind ? 'on' : ''}">${{ cat: '🌈', astro: '🧑‍🚀', human: '⚡' }[k]} ${t(`kind.${k}`)}</button>`,
       ).join('')}</div>
       <hr/>
+      ${this.launcherHtml()}
+      <hr/>
+      ${this.cfg.dnd.until > Date.now()
+        ? `<button data-a="dndOff">🔔 ${t('menu.dndOff', { time: clock(this.cfg.dnd.until) })}</button>`
+        : `<button data-a="dnd">🤫 ${t('menu.dnd')}</button>`}
       <button data-a="roam">🗺️ ${t('menu.roam')}</button>
       <button data-a="settings">⚙️ ${t('menu.settings')}</button>
       <button data-a="hide">🙈 ${t('menu.hide')}</button>
@@ -354,6 +418,26 @@ class Pet {
     this.menuOpen = true;
     this.positionMenu();
     if (this.state === 'walk') this.setState('idle', 3);
+    void getCurrentWindow().setFocus();
+  }
+
+  launcherHtml() {
+    const items = this.cfg.launcher;
+    return `<div class="menu-label">${t('menu.launcher')} · ${LAUNCHER_KEY}</div>
+      ${items.length
+        ? `<div class="menu-launch">${items.map((it, i) => `<button data-launch="${i}" title="${escapeHtml(it.target)}">${launchIcon(it.target)} ${escapeHtml(it.name)}</button>`).join('')}</div>`
+        : `<div class="menu-empty">${t('menu.launcherEmpty')}</div>`}`;
+  }
+
+  /** Launcher only (global shortcut). */
+  openLauncher() {
+    this.menuEl.innerHTML = `<div class="menu-title">${escapeHtml(this.name)}</div>${this.launcherHtml()}
+      <hr/><button data-a="settings">✏️ ${t('menu.launcherEdit')}</button>`;
+    this.menuEl.classList.remove('hidden');
+    this.menuOpen = true;
+    this.positionMenu();
+    if (this.state === 'walk' || this.state === 'sleep') this.setState('idle', 3);
+    this.anim.react('hop');
     void getCurrentWindow().setFocus();
   }
 
@@ -381,6 +465,18 @@ class Pet {
     const a = btn.dataset.a;
     this.closeMenu();
     const now = performance.now();
+    if (btn.dataset.launch !== undefined) {
+      const item = this.cfg.launcher[Number(btn.dataset.launch)];
+      if (!item) return;
+      try {
+        await invoke('launch', { target: item.target });
+        this.anim.react('hop');
+      } catch {
+        this.anim.react('shake');
+        this.say(t('launch.fail', { name: item.name }));
+      }
+      return;
+    }
     if (kind && kind !== this.cfg.pet.kind) {
       await saveConfig({ ...this.cfg, pet: { ...this.cfg.pet, kind } });
       return;
@@ -390,6 +486,11 @@ class Pet {
       case 'sleep': this.setState('sleep', rand(40, 90)); this.say(line('sleep', this.cfg.pet.kind)); break;
       case 'wake': this.onClick(now); break;
       case 'roam': this.editRoam(); break;
+      case 'dnd':
+        await saveConfig({ ...this.cfg, dnd: { ...this.cfg.dnd, until: Date.now() + 3600_000 } });
+        this.say(line('dndOn', this.cfg.pet.kind));
+        break;
+      case 'dndOff': await saveConfig({ ...this.cfg, dnd: { ...this.cfg.dnd, until: 0 } }); break;
       case 'settings': await invoke('open_settings'); break;
       case 'hide': await invoke('toggle_pet', { visible: false }); break;
       case 'quit': await invoke('quit_app'); break;
@@ -441,7 +542,11 @@ class Pet {
     this.petEl.classList.toggle('dragging', this.state === 'drag');
 
     if (!this.bubbleEl.classList.contains('hidden')) {
-      if (now > this.bubbleUntil) this.bubbleEl.classList.add('hidden');
+      if (now > this.bubbleUntil) {
+        const timedOut = this.askTimeout;
+        this.endAsk();
+        timedOut?.();
+      }
       else {
         const bw = this.bubbleEl.offsetWidth, bh = this.bubbleEl.offsetHeight;
         const left = clamp(this.x + this.size / 2 - bw / 2, 6, window.innerWidth - bw - 6);
@@ -470,6 +575,106 @@ class Pet {
 const toBox = (r: DOMRect): Box => ({ x: r.left, y: r.top, w: r.width, h: r.height });
 const pad = (r: Box, p: number): Box => ({ x: r.x - p, y: r.y - p, w: r.w + 2 * p, h: r.h + 2 * p });
 const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const clock = (ms: number) => new Date(ms).toLocaleTimeString(locale() === 'zh' ? 'zh-CN' : 'en', { hour: '2-digit', minute: '2-digit' });
+const launchIcon = (target: string) => (target.includes('://') ? '🌐' : '🚀');
+
+// ---------------------------------------------------------------- work buddy (M2)
+
+/** Turns companion events into what the pet says and does. */
+function handleCompanion(pet: Pet, c: Companion, e: CompanionEvent) {
+  const kind = pet.cfg.pet.kind;
+  const vars = { name: pet.name };
+  const chatty = !pet.quiet;
+  const wakeUp = () => { if (pet.state === 'sleep') pet.setState('idle', 3); };
+  switch (e.type) {
+    case 'phase': {
+      const day = new Date().getDay();
+      let cat: Parameters<typeof line>[0] | null = null;
+      if (e.phase === 'work') {
+        if (e.from === 'lunch') cat = 'afternoon';
+        else cat = day === 1 && Math.random() < 0.6 ? 'monday' : day === 5 && Math.random() < 0.6 ? 'friday' : 'clockIn';
+      } else if (e.phase === 'lunch') cat = 'lunch';
+      else if (e.phase === 'before') cat = e.from === null ? 'early' : null;
+      else if (e.phase === 'after') cat = e.from === null ? 'stillHere' : 'clockOut';
+      else if (e.phase === 'off') cat = e.from === null ? 'weekend' : null;
+      else if (e.phase === 'free' && e.from === null) cat = 'greet';
+      if (!cat || (!chatty && e.from !== null)) return;
+      wakeUp();
+      pet.anim.react(cat === 'clockOut' ? 'wave' : 'jump');
+      pet.say(line(cat, kind, vars), 5000);
+      if (cat === 'clockOut') setTimeout(() => pet.say(line('relax', kind), 6000), 5600);
+      return;
+    }
+    case 'remind': {
+      const k: ReminderKind = e.kind;
+      wakeUp();
+      pet.anim.react(k === 'stand' ? 'jump' : 'hop');
+      const snooze = pet.cfg.reminders.snoozeMin;
+      pet.ask(
+        line(`remind.${k}`, kind),
+        [
+          { label: t(`ask.${k}`), primary: true, run: () => {
+            c.respond(k, 'done', Date.now());
+            pet.anim.react('happy');
+            pet.burstHearts(3);
+            pet.say(line('thanks', kind));
+          } },
+          { label: t('ask.snooze', { min: String(snooze) }), run: () => {
+            c.respond(k, 'snooze', Date.now());
+            pet.say(line('snoozed', kind, { m: String(snooze) }));
+          } },
+        ],
+        () => c.respond(k, 'ignore', Date.now()),
+      );
+      return;
+    }
+    case 'cheer':
+      if (!chatty || pet.state === 'sleep') return;
+      pet.anim.react('happy');
+      pet.say(line('cheer', kind, vars), 4000);
+      return;
+    case 'overtime':
+      wakeUp();
+      pet.say(line('overtime', kind, { h: String(e.hours) }), 5000);
+      return;
+    case 'welcomeBack':
+      if (!chatty || e.awayMin < 2) return;
+      wakeUp();
+      pet.anim.react('wave');
+      pet.say(line('back', kind, { m: String(e.awayMin) }), 4000);
+      return;
+  }
+}
+
+function startCompanion(pet: Pet) {
+  const c = new Companion(() => pet.cfg, (e) => handleCompanion(pet, c, e));
+  let last = Date.now();
+  let lastApp = '';
+  const sample = async () => {
+    let p: Presence = { idle: 0, front: null };
+    try {
+      p = (await invoke<Presence>('get_presence')) ?? p;
+    } catch { /* keep defaults */ }
+    const now = Date.now();
+    c.tick(p, now, Math.min(30, (now - last) / 1000));
+    last = now;
+    pet.quiet = c.quiet !== null;
+    pet.frontBox = p.front && c.quiet !== 'fullscreen' ? p.front.bounds : null;
+    // the active window changed and we're sitting on it: drift somewhere else
+    const app = p.front?.app ?? '';
+    if (app !== lastApp) {
+      lastApp = app;
+      if (pet.state === 'idle' && !pet.hover && !pet.menuOpen && pet.coversFront(pet.x, pet.y)) {
+        pet.target = pet.pickSpot();
+        pet.setState('walk');
+      }
+    }
+  };
+  void sample();
+  setInterval(() => void sample(), PRESENCE_EVERY);
+  if (import.meta.env.DEV) (window as any).__pawse = { pet, companion: c };
+  return c;
+}
 
 async function boot() {
   const cfg = await loadConfig();
@@ -493,6 +698,7 @@ async function boot() {
     pet.cursor = { x: e.payload[0], y: e.payload[1] };
   });
   await listen('edit-roam', () => pet.editRoam());
+  await listen('open-launcher', () => pet.openLauncher());
   await onConfigChange((c) => pet.applyConfig(c));
 
   let last = performance.now();
@@ -507,7 +713,8 @@ async function boot() {
   requestAnimationFrame(frame);
 
   pet.anim.react('jump');
-  setTimeout(() => pet.say(line('greet', pet.cfg.pet.kind, { name: pet.name })), 500);
+  // the companion's first tick greets according to the time of day
+  setTimeout(() => startCompanion(pet), 500);
 }
 
 void boot();
