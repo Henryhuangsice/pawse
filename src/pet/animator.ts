@@ -13,6 +13,7 @@ const PART_NAMES = [
   'root', 'body', 'head', 'tail', 'tail2', 'earL', 'earR', 'legL', 'legR', 'armL', 'armR',
   'eyeL', 'eyeR', 'eyes', 'eyesHappy', 'eyesClosed', 'blush', 'mouth', 'mouthOpen', 'shadow',
   'aura', 'aura2', 'ring', 'sparks', 'backdrop', 'trail', 'trail2', 'starsA', 'starsB',
+  'flameL', 'flameR', 'flutter',
 ] as const;
 type PartName = (typeof PART_NAMES)[number];
 
@@ -185,18 +186,21 @@ export class Animator {
     }
 
     // ---- smooth styles (flat / power) ----
+    // flyers hover on their thrusters and only touch down to nap
+    const fly = !!m.fly;
+    const lift = !fly ? 0 : sleeping ? -8 : 3 + 3 * Math.sin(T * (walking ? 4.5 : 2.6));
     if (p.root) {
-      const lean = walking ? 4 * this.dir : 0;
+      const lean = walking ? (fly ? 12 : 4) * this.dir : 0;
       const jx = quake ? (Math.random() - 0.5) * 2 * quake : 0;
       p.root.setAttribute('transform', [
-        tr(jx, -(jumpY + bob)),
+        tr(jx, -(jumpY + (fly ? 0 : bob) + lift)),
         rot(this.swing.a + lean, dragging ? [60, 30] : m.root),
         scaleAt(this.flip * spinX * sx, sy, m.root),
       ].join(' '));
     }
     if (p.shadow) {
-      const lift = jumpY + (dragging ? 30 : 0);
-      const k = clamp(1 - lift / 70, 0.35, 1);
+      const up = jumpY + Math.max(0, lift) * 2 + (dragging ? 30 : 0);
+      const k = clamp(1 - up / 70, 0.35, 1);
       p.shadow.setAttribute('transform', scaleAt(k, k, [60, 113]));
     }
 
@@ -204,8 +208,29 @@ export class Animator {
 
     const legA = walking ? -Math.max(0, Math.sin(cyc)) * 4 : dragging ? 3 + Math.sin(T * 8) : 0;
     const legB = walking ? -Math.max(0, -Math.sin(cyc)) * 4 : dragging ? 3 - Math.sin(T * 8) : 0;
-    p.legL?.setAttribute('transform', tr(0, legA));
-    p.legR?.setAttribute('transform', tr(0, legB));
+    if (fly) {
+      // paws dangle in the air
+      const d = sleeping ? 0 : walking ? 10 : 4;
+      p.legL?.setAttribute('transform', rot(d * Math.sin(T * 3), m.legL));
+      p.legR?.setAttribute('transform', rot(d * Math.sin(T * 3 + 1.2), m.legR));
+    } else {
+      p.legL?.setAttribute('transform', tr(0, legA));
+      p.legR?.setAttribute('transform', tr(0, legB));
+    }
+
+    // thruster flames: flicker, boost when moving / hovered / happy, off while napping
+    for (const [part, x] of [['flameL', 40], ['flameR', 80]] as const) {
+      const el = p[part];
+      if (!el) continue;
+      show(el, !sleeping);
+      const boost = walking || this.hover || happy || dragging ? 1.45 : 1;
+      const h = boost * (1 + 0.18 * Math.sin(T * 31 + x) + 0.12 * Math.random());
+      el.setAttribute('transform', scaleAt(1 + 0.06 * Math.sin(T * 23 + x), h, [x, 86]));
+    }
+    if (p.flutter) {
+      const a = sleeping ? 2 : (walking ? 14 : 7) * Math.sin(T * (walking ? 9 : 4));
+      p.flutter.setAttribute('transform', rot(a, [70, 70]));
+    }
 
     if (m.armL && m.armR) {
       let aL = 4 * Math.sin(T * 2), aR = -4 * Math.sin(T * 2);

@@ -291,7 +291,7 @@ class Pet {
     if (this.state === 'walk') this.setState('idle', 3);
     const options: Reaction[] = ['jump', 'spin', 'happy', 'happy'];
     if (kind === 'human') options.push('powerup', 'powerup', 'wave');
-    if (kind === 'dog') options.push('happy', 'hop');
+    if (kind === 'jet') options.push('spin', 'spin');
     const r = pick(options);
     this.anim.react(r, now);
     if (r === 'happy') this.burstHearts(3);
@@ -343,7 +343,7 @@ class Pet {
       <button data-a="${sleeping ? 'wake' : 'sleep'}">${sleeping ? '☀️ ' + t('menu.wake') : '💤 ' + t('menu.sleep')}</button>
       <div class="menu-label">${t('menu.switch')}</div>
       <div class="menu-kinds">${PET_KINDS.map(
-        (k) => `<button data-kind="${k}" class="${k === kind ? 'on' : ''}">${{ cat: '🌈', dog: '🐕', human: '⚡' }[k]} ${t(`kind.${k}`)}</button>`,
+        (k) => `<button data-kind="${k}" class="${k === kind ? 'on' : ''}">${{ cat: '🌈', jet: '🚀', human: '⚡' }[k]} ${t(`kind.${k}`)}</button>`,
       ).join('')}</div>
       <hr/>
       <button data-a="roam">🗺️ ${t('menu.roam')}</button>

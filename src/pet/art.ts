@@ -4,7 +4,7 @@ import type { PetKind } from '../shared/config';
  * Built-in pets are vector art split into named parts (`data-p="..."`).
  * The Animator moves those parts procedurally; each pet declares a render style:
  *   - pixel : original flying pixel cat with a synthwave trail. Grid-snapped, 12 fps, frame swaps.
- *   - flat  : geometric flat-design Shiba. Restrained palette, poster-style backdrop disc.
+ *   - flat  : original jetpack cat, flat design. Hovers on flickering thrusters, scarf flutters.
  *   - power : sleek original fighter. Hover charges power → golden hair, geometric aura, speed lines.
  *
  * Elements with `data-power` fade in with the power level, `data-unpower` fade out.
@@ -17,6 +17,8 @@ type Pt = [number, number];
 export interface PetMeta {
   style: RenderStyle;
   earTwitch: boolean;
+  /** Always airborne: hover bob, thruster flames, forward lean while moving. */
+  fly?: boolean;
   root: Pt;
   body: Pt;
   head: Pt;
@@ -39,11 +41,11 @@ export const META: Record<PetKind, PetMeta> = {
     root: [60, 112], body: [60, 112], head: [92, 60],
     legL: [44, 84], legR: [70, 84], eyeL: [84, 60], eyeR: [104, 60],
   },
-  dog: {
-    style: 'flat', earTwitch: true,
-    root: [60, 112], body: [60, 112], head: [60, 68], tail: [80, 96],
-    earL: [44, 30], earR: [76, 30], legL: [52, 104], legR: [68, 104],
-    eyeL: [50.5, 44], eyeR: [69.5, 44],
+  jet: {
+    style: 'flat', earTwitch: true, fly: true,
+    root: [60, 112], body: [60, 96], head: [60, 66], tail: [72, 92],
+    earL: [46, 30], earR: [74, 30], legL: [53, 92], legR: [67, 92],
+    eyeL: [50, 49], eyeR: [70, 49],
   },
   human: {
     style: 'power', earTwitch: false,
@@ -165,49 +167,67 @@ function catSVG(): string {
   </g>`;
 }
 
-// ---------------------------------------------------------------- geometric flat Shiba
+// ---------------------------------------------------------------- jetpack cat (original design)
 
-const SH = {
-  coat: '#e07a5f', // terracotta
-  coatDark: '#c5654b',
-  cream: '#f4f1de',
-  ink: '#2f3150',
-  sun: '#f2cc8f', // mustard
-  sage: '#81b29a',
+const J = {
+  fur: '#7f93ad', // blue-grey
+  furDark: '#61728b',
+  cream: '#eef1f5',
+  ink: '#23283a',
+  pink: '#f4a6b7',
+  pack: '#f7f7f4',
+  teal: '#2ec4b6',
+  scarf: '#ff5d73',
+  lens: '#9be7ff',
+  flame: '#ff8a3d',
+  flameCore: '#fff3b0',
 };
 
-function dogSVG(): string {
+function jetSVG(): string {
+  const flame = (x: number, part: string) => `
+    <g data-p="${part}">
+      <path d="M${x - 5} 86 C ${x - 5} 96, ${x} 104, ${x} 110 C ${x} 104, ${x + 5} 96, ${x + 5} 86 Z" fill="${J.flame}"/>
+      <path d="M${x - 2.6} 86 C ${x - 2.6} 92, ${x} 97, ${x} 100 C ${x} 97, ${x + 2.6} 92, ${x + 2.6} 86 Z" fill="${J.flameCore}"/>
+    </g>`;
+  const thruster = (x: number) => `
+    <rect x="${x - 6}" y="60" width="12" height="26" rx="6" fill="${J.pack}"/>
+    <rect x="${x - 6}" y="66" width="12" height="3" fill="${J.teal}"/>
+    <path d="M${x - 4.5} 84 L${x + 4.5} 84 L${x + 5.5} 89 L${x - 5.5} 89 Z" fill="${J.ink}"/>`;
   return `
-  <ellipse data-p="shadow" cx="60" cy="113" rx="24" ry="3.5" fill="${SH.ink}" opacity=".14"/>
+  <ellipse data-p="shadow" cx="60" cy="113" rx="20" ry="3" fill="${J.ink}" opacity=".14"/>
   <g data-p="root">
-    <circle data-p="backdrop" cx="60" cy="58" r="40" fill="${SH.sun}" opacity=".55"/>
-    <g data-p="tail">
-      <path d="M78 98 C 96 98, 100 78, 88 74 C 80 72, 78 82, 86 84" fill="none" stroke="${SH.coat}" stroke-width="9" stroke-linecap="round"/>
-      <path d="M88 74 C 82 73, 79 79, 84 83" fill="none" stroke="${SH.cream}" stroke-width="4" stroke-linecap="round"/>
-    </g>
+    ${flame(40, 'flameL')}
+    ${flame(80, 'flameR')}
+    <g data-p="pack">${thruster(40)}${thruster(80)}<rect x="44" y="70" width="32" height="5" rx="2.5" fill="${J.teal}"/></g>
+    <g data-p="tail"><path d="M72 92 C 88 94, 96 80, 90 66" fill="none" stroke="${J.fur}" stroke-width="7" stroke-linecap="round"/><path d="M92.6 72 C 92 68.5, 91 67, 90 66" fill="none" stroke="${J.furDark}" stroke-width="7" stroke-linecap="round"/></g>
+    <g data-p="legL"><rect x="49" y="92" width="8" height="12" rx="4" fill="${J.cream}"/></g>
+    <g data-p="legR"><rect x="63" y="92" width="8" height="12" rx="4" fill="${J.cream}"/></g>
     <g data-p="body">
-      <path d="M41 112 L45 80 Q47 68 60 68 Q73 68 75 80 L79 112 Z" fill="${SH.coat}"/>
-      <path d="M52 70 L68 70 L64 98 Q60 104 56 98 Z" fill="${SH.cream}"/>
-      <path d="M45.5 78 Q60 86 74.5 78 L75.2 83 Q60 91 44.8 83 Z" fill="${SH.sage}"/>
-      <circle cx="60" cy="88" r="3.2" fill="${SH.sun}"/>
+      <path d="M46 96 Q43 70 60 67 Q77 70 74 96 Q60 101 46 96 Z" fill="${J.fur}"/>
+      <ellipse cx="60" cy="86" rx="8.5" ry="9.5" fill="${J.cream}"/>
+      <path d="M49 72 L55 93 M71 72 L65 93" stroke="${J.teal}" stroke-width="3" stroke-linecap="round"/>
     </g>
-    <g data-p="legL"><rect x="47.5" y="96" width="9" height="16" rx="4.5" fill="${SH.cream}"/></g>
-    <g data-p="legR"><rect x="63.5" y="96" width="9" height="16" rx="4.5" fill="${SH.cream}"/></g>
+    <g data-p="flutter"><path d="M70 68 C 79 69, 85 64, 94 68 L92 74 C 84 71, 79 75, 70 73.5 Z" fill="${J.scarf}"/></g>
+    <path d="M46 65 Q60 72 74 65 L74.5 70.5 Q60 77.5 45.5 70.5 Z" fill="${J.scarf}"/>
     <g data-p="head">
-      <g data-p="earL"><path d="M36 36 L41 9 L56 27 Z" fill="${SH.coat}"/><path d="M41 31 L43 17 L51 27 Z" fill="${SH.ink}"/></g>
-      <g data-p="earR"><path d="M84 36 L79 9 L64 27 Z" fill="${SH.coat}"/><path d="M79 31 L77 17 L69 27 Z" fill="${SH.ink}"/></g>
-      <path d="M34 44 Q34 22 60 22 Q86 22 86 44 Q86 61 60 68 Q34 61 34 44 Z" fill="${SH.coat}"/>
-      <path d="M41 49 Q50 44 60 50 Q70 44 79 49 Q77 63 60 68 Q43 63 41 49 Z" fill="${SH.cream}"/>
-      <circle cx="49" cy="36.5" r="2.4" fill="${SH.cream}"/>
-      <circle cx="71" cy="36.5" r="2.4" fill="${SH.cream}"/>
+      <g data-p="earL"><path d="M35 42 L38 13 L56 28 Z" fill="${J.fur}"/><path d="M40 35 L41.5 21 L50.5 28.5 Z" fill="${J.pink}"/></g>
+      <g data-p="earR"><path d="M85 42 L82 13 L64 28 Z" fill="${J.fur}"/><path d="M80 35 L78.5 21 L69.5 28.5 Z" fill="${J.pink}"/></g>
+      <path d="M32 47 Q32 24 60 24 Q88 24 88 47 Q88 64 60 68 Q32 64 32 47 Z" fill="${J.fur}"/>
+      <path d="M53 24.6 L60 35 L67 24.6 Z" fill="${J.furDark}"/>
+      <path d="M32.6 37 Q60 28 87.4 37 L87.6 41.5 Q60 32.5 32.4 41.5 Z" fill="${J.ink}"/>
+      <circle cx="48.5" cy="34.5" r="6.6" fill="${J.lens}" stroke="${J.ink}" stroke-width="2.2"/>
+      <circle cx="71.5" cy="34.5" r="6.6" fill="${J.lens}" stroke="${J.ink}" stroke-width="2.2"/>
+      <path d="M45.5 32 Q47 30.5 49 30.6 M68.5 32 Q70 30.5 72 30.6" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round"/>
       <g data-p="eyes">
-        <g data-p="eyeL"><ellipse cx="50.5" cy="44" rx="2.8" ry="3.4" fill="${SH.ink}"/></g>
-        <g data-p="eyeR"><ellipse cx="69.5" cy="44" rx="2.8" ry="3.4" fill="${SH.ink}"/></g>
+        <g data-p="eyeL"><ellipse cx="50" cy="49" rx="3.4" ry="4.2" fill="${J.ink}"/><circle cx="51.2" cy="47.6" r="1.1" fill="#fff"/></g>
+        <g data-p="eyeR"><ellipse cx="70" cy="49" rx="3.4" ry="4.2" fill="${J.ink}"/><circle cx="71.2" cy="47.6" r="1.1" fill="#fff"/></g>
       </g>
-      <g data-p="eyesHappy" style="display:none"><path d="M47 45 Q50.5 40.5 54 45 M66 45 Q69.5 40.5 73 45" fill="none" stroke="${SH.ink}" stroke-width="2.4" stroke-linecap="round"/></g>
-      <path d="M56 53 L64 53 L60 57.5 Z" fill="${SH.ink}" stroke="${SH.ink}" stroke-width="1.6" stroke-linejoin="round"/>
-      <g data-p="mouth"><path d="M60 57.5 L60 60 M56 61 Q58 62.5 60 60 Q62 62.5 64 61" fill="none" stroke="${SH.ink}" stroke-width="1.6" stroke-linecap="round"/></g>
-      <g data-p="mouthOpen" style="display:none"><path d="M60 57.5 L60 59.5 M55.5 60 Q60 62 64.5 60 Q63 68 60 68 Q57 68 55.5 60 Z" fill="${SH.coatDark}" stroke="${SH.ink}" stroke-width="1.6" stroke-linejoin="round"/></g>
+      <g data-p="eyesHappy" style="display:none"><path d="M46.5 50 Q50 45.5 53.5 50 M66.5 50 Q70 45.5 73.5 50" fill="none" stroke="${J.ink}" stroke-width="2.2" stroke-linecap="round"/></g>
+      <path d="M49.5 57 Q60 51.5 70.5 57 Q68.5 65.5 60 65.5 Q51.5 65.5 49.5 57 Z" fill="${J.cream}"/>
+      <path d="M57.6 56 L62.4 56 L60 58.6 Z" fill="${J.pink}" stroke="${J.pink}" stroke-width="1.2" stroke-linejoin="round"/>
+      <g data-p="mouth"><path d="M56.5 60 Q58.3 61.8 60 60 Q61.7 61.8 63.5 60" fill="none" stroke="${J.ink}" stroke-width="1.4" stroke-linecap="round"/></g>
+      <g data-p="mouthOpen" style="display:none"><path d="M56 59.5 Q60 61 64 59.5 Q63 66 60 66 Q57 66 56 59.5 Z" fill="${J.scarf}" stroke="${J.ink}" stroke-width="1.4" stroke-linejoin="round"/></g>
+      <path d="M30 55 L44 57 M30 60.5 L44 60 M90 55 L76 57 M90 60.5 L76 60" stroke="${J.ink}" stroke-width="1.1" stroke-linecap="round" opacity=".45"/>
     </g>
   </g>`;
 }
@@ -287,7 +307,7 @@ function fighterSVG(): string {
   </g>`;
 }
 
-const BUILD: Record<PetKind, () => string> = { cat: catSVG, dog: dogSVG, human: fighterSVG };
+const BUILD: Record<PetKind, () => string> = { cat: catSVG, jet: jetSVG, human: fighterSVG };
 
 export function petSVG(kind: PetKind): string {
   return `<svg class="pet-svg style-${META[kind].style}" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" overflow="visible">${BUILD[kind]()}</svg>`;

@@ -1,8 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
-export type PetKind = 'cat' | 'dog' | 'human';
-export const PET_KINDS: PetKind[] = ['cat', 'dog', 'human'];
+export type PetKind = 'cat' | 'jet' | 'human';
+export const PET_KINDS: PetKind[] = ['cat', 'jet', 'human'];
 export type Lang = 'auto' | 'zh' | 'en';
 
 /** A rectangle expressed as fractions (0..1) of the screen, so it survives resolution changes. */
@@ -49,6 +49,7 @@ export function normalizeConfig(raw: unknown): AppConfig {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
   const pet = (r.pet ?? {}) as Record<string, unknown>;
   const roam = (r.roam ?? {}) as Record<string, unknown>;
+  if (pet.kind === 'dog') pet.kind = 'jet'; // v0.1 had a dog in this slot
   const kind = PET_KINDS.includes(pet.kind as PetKind) ? (pet.kind as PetKind) : DEFAULT_CONFIG.pet.kind;
   const x = clamp(num(roam.x, DEFAULT_CONFIG.roam.x), 0, 0.95);
   const y = clamp(num(roam.y, DEFAULT_CONFIG.roam.y), 0, 0.95);
