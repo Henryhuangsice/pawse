@@ -33,6 +33,14 @@ Pawse 是一只住在你桌面角落的小宠物（像素飞猫 / 宇航员 / �
 
 > 隐私：只读取“距上次键鼠操作多少秒”和“最前面窗口属于哪个应用、在哪个位置”，不读窗口标题、不截屏、不记录按键，也不需要辅助功能或屏幕录制权限。
 
+## M3 —— 我的宠物
+
+- 📷 **用照片做宠物**：选一张照片（自家猫狗、手办、自画像…），在本机自动抠图（U²-Net small，约 1 秒），**图片不上传**；也可以选择不抠图。做好的宠物会呼吸、蹦跳着走、朝你倾身、被拖时摆动
+- ✨ **用文字生成**：描述你想要的样子，选画风（像素 / 扁平 / 3D 卡通 / 水彩 / Q 版），用你自己的 Key 调用 **通义万相**（国内）或 **OpenAI**（海外）生成，再本机抠图
+  - API Key 存在系统钥匙串里，不写进配置文件；请求从 Rust 发出，Key 不进网页层
+- 🎨 **换配色 + 配饰**：内置形象可以调色，戴皇冠 / 墨镜 / 蝴蝶结 / 耳机（自定义宠物可戴皇冠和蝴蝶结）
+- 📦 **角色包**：把自定义宠物导出成 `.pawse` 文件分享给朋友，对方一键导入
+
 ## 技术栈
 
 | 层 | 选型 | 原因 |
@@ -75,15 +83,19 @@ npm run tauri build    # 打包 .app / .dmg（Windows 上为 .msi / .exe）
 src/
   shared/config.ts     配置模型、默认值、持久化
   shared/i18n.ts       中英文文案与台词库
+  shared/cutout.ts     本地抠图（onnxruntime-web + U²-Net small）
   pet/art.ts           三个内置形象（分部件 SVG / 帧图集）
 public/pets/astro/     宇航员帧图集（由 scripts/make_astro_sprites.py 生成）
   pet/animator.ts      程序化动画
   pet/main.ts          宠物行为状态机、交互、气泡、菜单、命中区域、上班搭子事件
   pet/companion.ts     上班搭子逻辑：工作时段、提醒计时、断点、勿扰、降频（纯逻辑）
   pet/roamEditor.ts    屏幕框选活动范围
-  settings/            设置窗口
+  settings/            设置窗口（creator.ts：新建宠物面板）
 src-tauri/src/lib.rs   透明窗口、鼠标穿透轮询、托盘、配置读写、快捷键、开机自启
 src-tauri/src/system.rs 键鼠空闲时间、前台窗口、已安装应用、启动应用
+src-tauri/src/custom.rs 自定义宠物存储、.pawse 角色包
+src-tauri/src/genai.rs  文生图（通义万相 / OpenAI），API Key 存钥匙串
+public/models/         抠图模型
 docs/ROADMAP.md        分阶段计划
 ```
 

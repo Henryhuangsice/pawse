@@ -4,11 +4,12 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   loadConfig, onConfigChange, saveConfig, LAUNCHER_KEY, PET_KINDS,
-  type AppConfig, type PetKind, type ReminderKind,
+  type AppConfig, type CustomPetMeta, type PetKind, type ReminderKind,
 } from '../shared/config';
-import { line, locale, petName, setLang, t } from '../shared/i18n';
+import { line, locale, petName, setLang, t, type LineKind } from '../shared/i18n';
 import { Animator, type Reaction } from './animator';
-import { petSVG } from './art';
+import { CUSTOM_META, customSVG, petSVG } from './art';
+import { loadImage } from '../shared/image';
 import { Companion, type CompanionEvent, type Presence } from './companion';
 import { openRoamEditor } from './roamEditor';
 
@@ -56,6 +57,9 @@ class Pet {
   /** the window you're working in (overlay coords), for steering clear of it */
   frontBox: Box | null = null;
   quiet = false;
+  /** the active custom pet, once loaded */
+  customPet: { id: string; name: string; image: string; aspect: number } | null = null;
+  customs: CustomPetMeta[] = [];
 
   petEl = $<HTMLDivElement>('#pet');
   artEl = $<HTMLDivElement>('#pet-art');
@@ -80,12 +84,35 @@ class Pet {
 
   // ---------- setup ----------
   get name() {
+    if (this.customPet) return this.cfg.pet.name.trim() || this.customPet.name;
     return petName(this.cfg.pet.kind, this.cfg.pet.name);
   }
 
+  /** which line pools to use */
+  get lineKind(): LineKind {
+    return this.customPet ? 'custom' : this.cfg.pet.kind;
+  }
+
   mountArt() {
-    this.artEl.innerHTML = petSVG(this.cfg.pet.kind);
-    this.anim = new Animator(this.artEl.querySelector('svg')!, this.cfg.pet.kind);
+    const { kind, hue, accessory } = this.cfg.pet;
+    const c = this.customPet;
+    this.artEl.innerHTML = c ? customSVG(c.image, c.aspect, { hue, accessory }) : petSVG(kind, { hue, accessory });
+    this.anim = new Animator(this.artEl.querySelector('svg')!, kind, c ? CUSTOM_META : undefined);
+  }
+
+  /** Fetch the selected custom pet's picture (falls back to the built-in kind if it's gone). */
+  async loadCustom() {
+    const id = this.cfg.pet.custom;
+    if (!id) { this.customPet = null; return; }
+    if (this.customPet?.id === id) return;
+    try {
+      const p = await invoke<CustomPetMeta & { image: string }>('get_custom_pet', { id });
+      const img = await loadImage(p.image);
+      this.customPet = { id, name: p.name, image: p.image, aspect: img.naturalWidth / Math.max(1, img.naturalHeight) };
+    } catch (e) {
+      console.warn('custom pet unavailable', e);
+      this.customPet = null;
+    }
   }
 
   applyScale() {
@@ -162,7 +189,7 @@ class Pet {
     const r = Math.random();
     if (idleFor > 120_000 && r < 0.2) {
       this.setState('sleep', rand(25, 70));
-      if (Math.random() < 0.4) this.say(line('sleep', this.cfg.pet.kind));
+      if (Math.random() < 0.4) this.say(line('sleep', this.lineKind));
       return;
     }
     if (r < 0.6 || this.coversFront(this.x, this.y)) {
@@ -286,7 +313,7 @@ class Pet {
         void invoke('set_interactive_lock', { lock: false });
         this.anim.react('land');
         this.lastInteract = performance.now();
-        if (Math.random() < 0.35) this.say(line('dropped', this.cfg.pet.kind));
+        if (Math.random() < 0.35) this.say(line('dropped', this.lineKind));
         if (!this.inBounds()) this.walkBack();
         else this.setState('idle', rand(2, 4));
       } else if (e.type === 'pointerup') {
@@ -304,7 +331,7 @@ class Pet {
 
   onClick(now: number) {
     this.lastInteract = now;
-    const kind = this.cfg.pet.kind;
+    const kind = this.lineKind;
     if (this.state === 'sleep') {
       this.setState('idle', 3);
       this.anim.react('startle');
@@ -336,7 +363,7 @@ class Pet {
     this.anim.happy(1800, now);
     this.burstHearts(2);
     if (now - this.lastPetLine > 4000) {
-      this.say(line('petting', this.cfg.pet.kind));
+      this.say(line('petting', this.lineKind));
       this.lastPetLine = now;
     }
   }
@@ -394,7 +421,7 @@ class Pet {
 
   // ---------- menu ----------
   openMenu() {
-    const kind = this.cfg.pet.kind;
+    const kind = this.customPet ? null : this.cfg.pet.kind;
     const sleeping = this.state === 'sleep';
     this.menuEl.innerHTML = `
       <div class="menu-title">${escapeHtml(this.name)}</div>
@@ -404,6 +431,9 @@ class Pet {
       <div class="menu-kinds">${PET_KINDS.map(
         (k) => `<button data-kind="${k}" class="${k === kind ? 'on' : ''}">${{ cat: '🌈', astro: '🧑‍🚀', human: '⚡' }[k]} ${t(`kind.${k}`)}</button>`,
       ).join('')}</div>
+      ${this.customs.length ? `<div class="menu-kinds menu-customs">${this.customs.map(
+        (c) => `<button data-custom="${c.id}" class="${c.id === this.customPet?.id ? 'on' : ''}">${escapeHtml(c.name)}</button>`,
+      ).join('')}</div>` : ''}
       <hr/>
       ${this.launcherHtml()}
       <hr/>
@@ -477,18 +507,23 @@ class Pet {
       }
       return;
     }
-    if (kind && kind !== this.cfg.pet.kind) {
-      await saveConfig({ ...this.cfg, pet: { ...this.cfg.pet, kind } });
+    if (kind && (kind !== this.cfg.pet.kind || this.cfg.pet.custom)) {
+      await saveConfig({ ...this.cfg, pet: { ...this.cfg.pet, kind, custom: '' } });
+      return;
+    }
+    const custom = btn.dataset.custom;
+    if (custom && custom !== this.cfg.pet.custom) {
+      await saveConfig({ ...this.cfg, pet: { ...this.cfg.pet, custom } });
       return;
     }
     switch (a) {
       case 'pet': this.onPetted(now); break;
-      case 'sleep': this.setState('sleep', rand(40, 90)); this.say(line('sleep', this.cfg.pet.kind)); break;
+      case 'sleep': this.setState('sleep', rand(40, 90)); this.say(line('sleep', this.lineKind)); break;
       case 'wake': this.onClick(now); break;
       case 'roam': this.editRoam(); break;
       case 'dnd':
         await saveConfig({ ...this.cfg, dnd: { ...this.cfg.dnd, until: Date.now() + 3600_000 } });
-        this.say(line('dndOn', this.cfg.pet.kind));
+        this.say(line('dndOn', this.lineKind));
         break;
       case 'dndOff': await saveConfig({ ...this.cfg, dnd: { ...this.cfg.dnd, until: 0 } }); break;
       case 'settings': await invoke('open_settings'); break;
@@ -522,15 +557,21 @@ class Pet {
   }
 
   // ---------- config ----------
-  applyConfig(next: AppConfig) {
+  async applyConfig(next: AppConfig) {
     const prev = this.cfg;
     this.cfg = next;
     setLang(next.lang);
     if (prev.lang !== next.lang) void invoke('set_locale', { lang: setLang(next.lang) });
-    if (prev.pet.kind !== next.pet.kind) {
+    const switched = prev.pet.kind !== next.pet.kind || prev.pet.custom !== next.pet.custom;
+    if (switched || prev.pet.hue !== next.pet.hue || prev.pet.accessory !== next.pet.accessory) {
+      await this.loadCustom();
+      const mode = this.anim.mode;
       this.mountArt();
-      this.anim.react('spin');
-      this.say(line('switch', next.pet.kind));
+      this.anim.mode = mode;
+      if (switched) {
+        this.anim.react('spin');
+        this.say(line('switch', this.lineKind));
+      }
     }
     if (prev.pet.scale !== next.pet.scale) this.applyScale();
     if (JSON.stringify(prev.roam) !== JSON.stringify(next.roam) && !this.inBounds()) this.walkBack();
@@ -582,7 +623,7 @@ const launchIcon = (target: string) => (target.includes('://') ? '🌐' : '🚀'
 
 /** Turns companion events into what the pet says and does. */
 function handleCompanion(pet: Pet, c: Companion, e: CompanionEvent) {
-  const kind = pet.cfg.pet.kind;
+  const kind = pet.lineKind;
   const vars = { name: pet.name };
   const chatty = !pet.quiet;
   const wakeUp = () => { if (pet.state === 'sleep') pet.setState('idle', 3); };
@@ -682,6 +723,21 @@ async function boot() {
   void invoke('set_locale', { lang });
 
   const pet = new Pet(cfg);
+  if (cfg.pet.custom) {
+    await pet.loadCustom();
+    pet.mountArt();
+  }
+  const refreshCustoms = (list: CustomPetMeta[]) => {
+    pet.customs = list;
+    const active = list.find((c) => c.id === pet.customPet?.id);
+    if (active && pet.customPet) pet.customPet.name = active.name;
+    // the active custom pet was deleted: fall back to the built-in look
+    if (pet.cfg.pet.custom && !list.some((c) => c.id === pet.cfg.pet.custom)) {
+      void saveConfig({ ...pet.cfg, pet: { ...pet.cfg.pet, custom: '' } });
+    }
+  };
+  invoke<CustomPetMeta[]>('list_custom_pets').then((l) => (pet.customs = l ?? [])).catch(() => {});
+  await listen<CustomPetMeta[]>('custom-pets-changed', (e) => refreshCustoms(e.payload));
   document.addEventListener('contextmenu', (e) => e.preventDefault());
   pet.menuEl.addEventListener('click', (e) => void pet.onMenu(e.target as HTMLElement));
   window.addEventListener('blur', () => pet.closeMenu());
@@ -699,7 +755,7 @@ async function boot() {
   });
   await listen('edit-roam', () => pet.editRoam());
   await listen('open-launcher', () => pet.openLauncher());
-  await onConfigChange((c) => pet.applyConfig(c));
+  await onConfigChange((c) => void pet.applyConfig(c));
 
   let last = performance.now();
   const frame = (now: number) => {

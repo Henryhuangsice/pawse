@@ -1,17 +1,20 @@
-import type { PetKind } from '../shared/config';
+import type { Accessory, PetKind } from '../shared/config';
 
 /**
  * Built-in pets are vector art split into named parts (`data-p="..."`).
  * The Animator moves those parts procedurally; each pet declares a render style:
  *   - pixel : original flying pixel cat with a synthwave trail. Grid-snapped, 12 fps, frame swaps.
  *   - sprite: astronaut cut from green-screen footage; clips are swapped, the sprite is moved as a whole.
+ *   - image : a user's custom pet (one cut-out picture), brought to life by whole-body motion.
+ *
+ * Built-in looks can be recoloured (hue shift on the palette) and given an accessory.
  *   - power : sleek original fighter. Hover charges power → golden hair, geometric aura, speed lines.
  *
  * Elements with `data-power` fade in with the power level, `data-unpower` fade out.
  * Coordinate system: viewBox 0 0 120 120, ground line at y = 112.
  */
 
-export type RenderStyle = 'pixel' | 'sprite' | 'power';
+export type RenderStyle = 'pixel' | 'sprite' | 'power' | 'image';
 
 export interface SpriteSheets {
   base: string;
@@ -278,6 +281,133 @@ function fighterSVG(): string {
 
 const BUILD: Record<PetKind, () => string> = { cat: catSVG, astro: astroSVG, human: fighterSVG };
 
-export function petSVG(kind: PetKind): string {
-  return `<svg class="pet-svg style-${META[kind].style}" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" overflow="visible">${BUILD[kind]()}</svg>`;
+export interface Look {
+  hue?: number;
+  accessory?: Accessory;
+}
+
+const svgWrap = (style: RenderStyle, inner: string) =>
+  `<svg class="pet-svg style-${style}" viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" overflow="visible">${inner}</svg>`;
+
+export function petSVG(kind: PetKind, look: Look = {}): string {
+  const hue = look.hue ?? 0;
+  let inner = BUILD[kind]();
+  if (hue) {
+    if (META[kind].style === 'sprite') inner = inner.replace('<svg x=', `<svg style="filter:hue-rotate(${hue}deg)" x=`);
+    else inner = recolor(inner, hue, KEEP_COLORS[kind]);
+  }
+  return svgWrap(META[kind].style, withAccessory(inner, look.accessory, ACC_ANCHOR[kind]));
+}
+
+// ---------------------------------------------------------------- custom pets (single cut-out image)
+
+export const CUSTOM_META: PetMeta = {
+  style: 'image', earTwitch: false,
+  root: [60, 112], body: [60, 80], head: [60, 30],
+  legL: [55, 100], legR: [65, 100], eyeL: [56, 30], eyeR: [64, 30],
+};
+
+/** Fit the picture into a 104-unit box standing on the ground line. */
+export function customSVG(image: string, aspect: number, look: Look = {}): string {
+  const box = 104;
+  const w = aspect >= 1 ? box : box * aspect;
+  const h = aspect >= 1 ? box / aspect : box;
+  const x = 60 - w / 2, y = 112 - h;
+  const filter = look.hue ? ` style="filter:hue-rotate(${look.hue}deg)"` : '';
+  const inner = `
+  <g data-p="shadow"><ellipse cx="60" cy="113" rx="${Math.max(14, w * 0.32).toFixed(1)}" ry="3.4" fill="#1b2140" opacity=".16"/></g>
+  <g data-p="root">
+    <image href="${image}" x="${x.toFixed(2)}" y="${y.toFixed(2)}" width="${w.toFixed(2)}" height="${h.toFixed(2)}" preserveAspectRatio="xMidYMax meet"${filter}/>
+  </g>`;
+  // only hats work on an arbitrary picture: there's no known eye line
+  const acc = look.accessory && ['crown', 'bow'].includes(look.accessory) ? look.accessory : undefined;
+  return svgWrap('image', withAccessory(inner, acc, { top: [60, y + 2], eyes: [60, y + h * 0.25], w: Math.min(48, w * 0.42) }));
+}
+
+// ---------------------------------------------------------------- recolouring
+
+/** Colours that keep their hue (outlines, whites, skin) so a recolour still reads as the same pet. */
+const KEEP_COLORS: Record<PetKind, string[]> = {
+  cat: ['#241a33', '#fff3e2', '#ffffff', '#ff6fa5'],
+  astro: [],
+  human: ['#16182b', '#f0c9a5', '#f1ede4', '#3ff0d0'],
+};
+
+function hexToHsl(hex: string): [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hslToHex(h: number, s: number, l: number) {
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+    return Math.round(c * 255).toString(16).padStart(2, '0');
+  };
+  return `#${f(0)}${f(8)}${f(4)}`;
+}
+
+function recolor(svg: string, hue: number, keep: string[]) {
+  return svg.replace(/#[0-9a-fA-F]{6}\b/g, (hex) => {
+    if (keep.includes(hex.toLowerCase())) return hex;
+    const [h, s, l] = hexToHsl(hex);
+    if (s < 0.12) return hex; // greys stay grey
+    return hslToHex((h + hue) % 360, s, l);
+  });
+}
+
+// ---------------------------------------------------------------- accessories
+
+interface Anchor {
+  /** top of the head */
+  top: [number, number];
+  /** centre of the eye line */
+  eyes: [number, number];
+  /** head width */
+  w: number;
+}
+
+const ACC_ANCHOR: Record<PetKind, Anchor> = {
+  cat: { top: [94, 50], eyes: [94, 60], w: 40 },
+  astro: { top: [60, 6], eyes: [60, 15.5], w: 19 },
+  human: { top: [60, 14], eyes: [60, 38], w: 30 },
+};
+
+/** Drawn for a 40-unit-wide head, origin at the anchor. */
+function accessoryMarkup(a: Accessory, an: Anchor): string {
+  const k = an.w / 40;
+  const at = ([x, y]: [number, number]) => `translate(${x} ${y}) scale(${k.toFixed(3)})`;
+  switch (a) {
+    case 'crown':
+      return `<g transform="${at(an.top)}"><path d="M-14 2 L-16 -14 L-7 -6 L0 -18 L7 -6 L16 -14 L14 2 Z" fill="#ffd23f" stroke="#c98a00" stroke-width="2" stroke-linejoin="round"/>
+        <circle cx="0" cy="-5" r="2.6" fill="#ff4f7b"/><circle cx="-9" cy="-3" r="1.8" fill="#3ec6ff"/><circle cx="9" cy="-3" r="1.8" fill="#3ec6ff"/></g>`;
+    case 'shades':
+      return `<g transform="${at(an.eyes)}"><path d="M-19 -5 H-2 V1 Q-2 6 -8 6 H-14 Q-19 6 -19 1 Z M2 -5 H19 V1 Q19 6 14 6 H8 Q2 6 2 1 Z" fill="#14121c"/>
+        <path d="M-2 -3.5 H2" stroke="#14121c" stroke-width="2.4"/><path d="M-16 -3 L-12 -3 M5 -3 L9 -3" stroke="#ffffff" stroke-opacity=".55" stroke-width="1.6" stroke-linecap="round"/></g>`;
+    case 'bow':
+      return `<g transform="${at([an.top[0] + an.w * 0.32, an.top[1] + 3])}"><path d="M0 0 L-13 -8 Q-16 0 -13 8 Z M0 0 L13 -8 Q16 0 13 8 Z" fill="#ff5d8f" stroke="#c42d62" stroke-width="1.6" stroke-linejoin="round"/>
+        <circle r="3.6" fill="#ff86ad" stroke="#c42d62" stroke-width="1.6"/></g>`;
+    case 'headphones': {
+      const dy = (an.eyes[1] - an.top[1]) / k;
+      return `<g transform="${at(an.top)}"><path d="M-22 ${dy.toFixed(1)} Q-24 -8 0 -8 Q24 -8 22 ${dy.toFixed(1)}" fill="none" stroke="#2b2f3f" stroke-width="4" stroke-linecap="round"/>
+        <rect x="-27" y="${(dy - 5).toFixed(1)}" width="9" height="13" rx="4" fill="#ff8a5b" stroke="#2b2f3f" stroke-width="2"/>
+        <rect x="18" y="${(dy - 5).toFixed(1)}" width="9" height="13" rx="4" fill="#ff8a5b" stroke="#2b2f3f" stroke-width="2"/></g>`;
+    }
+    default:
+      return '';
+  }
+}
+
+/** Put the accessory last inside the root group; the Animator gives it the head's transform. */
+function withAccessory(inner: string, a: Accessory | undefined, an: Anchor) {
+  if (!a || a === 'none') return inner;
+  const i = inner.lastIndexOf('</g>');
+  return `${inner.slice(0, i)}<g data-p="acc">${accessoryMarkup(a, an)}</g>${inner.slice(i)}`;
 }

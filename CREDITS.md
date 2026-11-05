@@ -14,3 +14,10 @@ python scripts/make_astro_sprites.py FRAMES public/pets/astro   # 需要 Pillow 
 ```
 
 像素飞猫和战士为本项目原创矢量形象。
+
+## 抠图模型 / Background removal model
+
+- `public/models/u2netp.onnx`：U²-Net（small, u2netp），来自 [rembg](https://github.com/danielgatis/rembg) 发布页的 ONNX 版本
+  - 论文：Qin et al., “U²-Net: Going Deeper with Nested U-Structure for Salient Object Detection”, Pattern Recognition 2020
+  - 许可：Apache-2.0（[U-2-Net](https://github.com/xuebinqin/U-2-Net)）
+- 运行库：[onnxruntime-web](https://github.com/microsoft/onnxruntime)（MIT），在本机 WebAssembly 中运行，图片不上传

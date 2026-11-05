@@ -12,7 +12,7 @@ const DURATION: Record<Reaction, number> = {
 const PART_NAMES = [
   'root', 'body', 'head', 'tail', 'tail2', 'earL', 'earR', 'legL', 'legR', 'armL', 'armR',
   'eyeL', 'eyeR', 'eyes', 'eyesHappy', 'eyesClosed', 'blush', 'mouth', 'mouthOpen', 'shadow',
-  'aura', 'aura2', 'ring', 'sparks', 'backdrop', 'trail', 'trail2', 'starsA', 'starsB',
+  'aura', 'aura2', 'ring', 'sparks', 'backdrop', 'trail', 'trail2', 'starsA', 'starsB', 'acc',
 ] as const;
 type PartName = (typeof PART_NAMES)[number];
 
@@ -61,14 +61,15 @@ export class Animator {
     waveUntil: number;
   } | null = null;
 
-  constructor(svg: SVGSVGElement, kind: PetKind) {
+  /** `meta` overrides the built-in one (custom pets). */
+  constructor(svg: SVGSVGElement, kind: PetKind, meta?: PetMeta) {
     for (const n of PART_NAMES) {
       const el = svg.querySelector<SVGGraphicsElement>(`[data-p="${n}"]`);
       if (el) this.p[n] = el;
     }
     this.powerOn = [...svg.querySelectorAll<SVGGraphicsElement>('[data-power]')];
     this.powerOff = [...svg.querySelectorAll<SVGGraphicsElement>('[data-unpower]')];
-    this.m = META[kind];
+    this.m = meta ?? META[kind];
     if (this.m.style === 'sprite') {
       const imgs: Record<string, SVGImageElement> = {};
       svg.querySelectorAll<SVGImageElement>('image[data-clip]').forEach((el) => (imgs[el.dataset.clip!] = el));
@@ -179,8 +180,8 @@ export class Animator {
     this.gaze.x += (gz.x * Math.sign(this.flip || 1) - this.gaze.x) * Math.min(1, dt * 10);
     this.gaze.y += (gz.y - this.gaze.y) * Math.min(1, dt * 10);
 
-    if (this.sprite) {
-      this.applySprite({ T, dt, now, jumpY, sx, sy, spinX, quake, walking, dragging, sleeping, happy });
+    if (this.sprite || m.style === 'image') {
+      this.applyWhole({ T, dt, now, jumpY, sx, sy, spinX, quake, walking, dragging, sleeping, happy });
       return;
     }
 
@@ -257,6 +258,7 @@ export class Animator {
       if (sleeping) { tilt = 5; dy = 3 + breath * 30; }
       if (dragging) tilt = -this.swing.a * 0.4;
       p.head.setAttribute('transform', `${tr(0, dy)} ${rot(tilt + headShake, m.head)}`);
+      p.acc?.setAttribute('transform', p.head.getAttribute('transform')!);
     }
 
     if (now > this.twitch.next) {
@@ -287,44 +289,60 @@ export class Animator {
     if (m.style === 'power') this.applyPower(T, dt, now, sleeping);
   }
 
-  // ---------------- style: sprite ----------------
-  private applySprite(s: {
+  // ---------------- styles moved as a whole: sprite (footage) / image (custom pet) ----------------
+  private applyWhole(s: {
     T: number; dt: number; now: number; jumpY: number; sx: number; sy: number; spinX: number; quake: number;
     walking: boolean; dragging: boolean; sleeping: boolean; happy: boolean;
   }) {
-    const sp = this.sprite!, p = this.p, m = this.m;
-    const { fw, fh, cols, fps, clips } = sp.sheets;
+    const sp = this.sprite, p = this.p, m = this.m;
+    let face = 1;
+    let lift: number, tilt = 0, sx = s.sx, sy = s.sy;
 
-    // pick the clip: wave > drift while travelling > idle float
-    const clip = s.now < sp.waveUntil && !s.sleeping ? 'wave' : s.walking ? 'side' : 'idle';
-    if (clip !== sp.clip) {
-      sp.imgs[sp.clip]?.style.setProperty('display', 'none');
-      sp.imgs[clip]?.style.removeProperty('display');
-      sp.clip = clip;
-      sp.frame = 0;
+    if (sp) {
+      const { fw, fh, cols, fps, clips } = sp.sheets;
+      // pick the clip: wave > drift while travelling > idle float
+      const clip = s.now < sp.waveUntil && !s.sleeping ? 'wave' : s.walking ? 'side' : 'idle';
+      if (clip !== sp.clip) {
+        sp.imgs[sp.clip]?.style.setProperty('display', 'none');
+        sp.imgs[clip]?.style.removeProperty('display');
+        sp.clip = clip;
+        sp.frame = 0;
+      }
+      // footage plays at its own fps; slowed right down while napping
+      const speed = s.sleeping ? 0.25 : 1;
+      sp.frame = (sp.frame + s.dt * fps * speed) % clips[clip];
+      const f = Math.floor(sp.frame);
+      const img = sp.imgs[clip];
+      img?.setAttribute('x', String(-(f % cols) * fw));
+      img?.setAttribute('y', String(-Math.floor(f / cols) * fh));
+      // weightless hover; sinks down and tips back to nap
+      lift = s.sleeping ? 1 : 5 + 3 * Math.sin(s.T * 1.4);
+      if (s.walking) tilt = 6 * this.dir;
+      if (this.hover) tilt = 5 * this.gaze.x; // leans toward your cursor
+      if (s.sleeping) tilt = -14 + 2 * Math.sin(s.T * 0.6);
+      // the drift clip is a three-quarter view facing left; mirror it when heading right
+      if (clip === 'side') face = -Math.sign(this.flip || 1);
+    } else {
+      // a still picture: breathing squash, hop-steps while walking, a lean toward the cursor
+      const breath = s.sleeping ? 0.03 * Math.sin(s.T * 1.5) : 0.022 * Math.sin(s.T * 2.4);
+      const step = s.walking ? Math.abs(Math.sin(s.T * 9)) : 0;
+      lift = step * 7;
+      sy *= 1 + breath - (s.walking ? 0.05 * (1 - step) : 0);
+      sx *= 1 - breath * 0.6 + (s.walking ? 0.04 * (1 - step) : 0);
+      if (s.walking) tilt = 5 * Math.sin(s.T * 9) ;
+      if (this.hover) tilt = 6 * this.gaze.x;
+      if (s.happy) tilt = 8 * Math.sin(s.T * 12);
+      if (s.sleeping) { tilt = -8; sy *= 0.94; }
+      face = this.flip; // faces where it's going
     }
-    // footage plays at its own fps; slowed right down while napping
-    const speed = s.sleeping ? 0.25 : 1;
-    sp.frame = (sp.frame + s.dt * fps * speed) % clips[clip];
-    const f = Math.floor(sp.frame);
-    const img = sp.imgs[clip];
-    img?.setAttribute('x', String(-(f % cols) * fw));
-    img?.setAttribute('y', String(-Math.floor(f / cols) * fh));
 
-    // weightless hover; sinks down and tips back to nap
-    const lift = s.sleeping ? 1 : 5 + 3 * Math.sin(s.T * 1.4);
-    let tilt = 0;
-    if (s.walking) tilt = 6 * this.dir;
-    if (this.hover) tilt = 5 * this.gaze.x; // leans toward your cursor
-    if (s.sleeping) tilt = -14 + 2 * Math.sin(s.T * 0.6);
-    // the drift clip is a three-quarter view facing left; mirror it when heading right
-    const face = clip === 'side' ? -Math.sign(this.flip || 1) : 1;
     const jx = s.quake ? (Math.random() - 0.5) * 2 * s.quake : 0;
     p.root?.setAttribute('transform', [
       tr(jx, -(s.jumpY + lift)),
       rot(this.swing.a + tilt, s.dragging ? [60, 20] : m.body),
-      scaleAt(face * s.spinX * s.sx, s.sy, m.root),
+      scaleAt(face * s.spinX * sx, sy, m.root),
     ].join(' '));
+    if (p.root && m.style === 'image') p.root.style.opacity = s.sleeping ? '0.85' : '';
     if (p.shadow) {
       const k = clamp(1 - (s.jumpY + lift * 2 + (s.dragging ? 30 : 0)) / 70, 0.35, 1);
       p.shadow.setAttribute('transform', scaleAt(k, k, [60, 114]));
@@ -355,6 +373,7 @@ export class Animator {
     // head bobs one pixel: breathing at rest, nodding off while asleep
     const breathe = Math.sin(s.T * (s.sleeping ? 1.4 : 2.2)) > 0.3;
     p.head?.setAttribute('transform', tr(0, breathe || s.dragging ? PX : 0));
+    if (p.head && p.acc) p.acc.setAttribute('transform', p.head.getAttribute('transform')!);
 
     const up = Math.sin(s.cyc) > 0;
     p.legL?.setAttribute('transform', tr(0, s.walking && up ? -PX : s.dragging ? PX : 0));

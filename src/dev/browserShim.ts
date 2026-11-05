@@ -21,6 +21,35 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
     try { return JSON.parse(localStorage.getItem('pawse-config') ?? 'null'); } catch { return null; }
   };
 
+  type Stored = { id: string; name: string; source: string; created: number; image: string };
+  const pets = (): Stored[] => {
+    try { return JSON.parse(localStorage.getItem('pawse-custom-pets') ?? '[]'); } catch { return []; }
+  };
+  const setPets = (v: Stored[]) => localStorage.setItem('pawse-custom-pets', JSON.stringify(v));
+  const pickWithInput = () => new Promise<string | null>((resolve) => {
+    const input = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+    input.onchange = () => {
+      const f = input.files?.[0];
+      if (!f) return resolve(null);
+      const r = new FileReader();
+      r.onload = () => resolve(r.result as string);
+      r.readAsDataURL(f);
+    };
+    input.click();
+  });
+  /** stands in for a cloud model: an emoji "character" on a white background */
+  const mockGenerated = (prompt: string) => {
+    const c = Object.assign(document.createElement('canvas'), { width: 512, height: 512 });
+    const x = c.getContext('2d')!;
+    x.fillStyle = '#fff';
+    x.fillRect(0, 0, 512, 512);
+    x.font = '300px serif';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillText(/狐|fox/i.test(prompt) ? '🦊' : /猫|cat/i.test(prompt) ? '🐱' : '🐻', 256, 270);
+    return c.toDataURL('image/png');
+  };
+
   const invoke = async (cmd: string, args: Record<string, any> = {}) => {
     switch (cmd) {
       case 'get_config': return readCfg();
@@ -48,6 +77,44 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
       case 'launch':
         console.info('[shim] launch', args.target);
         return null;
+      // ---- M3: custom pets live in localStorage here ----
+      case 'list_custom_pets': return pets().map(({ image: _i, ...m }) => m);
+      case 'get_custom_pet': {
+        const p = pets().find((x) => x.id === args.id);
+        if (!p) throw new Error('not found');
+        return p;
+      }
+      case 'save_custom_pet': {
+        const meta = { id: `p${Date.now().toString(16)}`, name: args.name, source: args.source, created: Date.now() };
+        setPets([...pets(), { ...meta, image: args.image }]);
+        emit('custom-pets-changed', pets().map(({ image: _i, ...m }) => m));
+        return meta;
+      }
+      case 'rename_custom_pet':
+        setPets(pets().map((p) => (p.id === args.id ? { ...p, name: args.name } : p)));
+        emit('custom-pets-changed', pets().map(({ image: _i, ...m }) => m));
+        return null;
+      case 'delete_custom_pet':
+        setPets(pets().filter((p) => p.id !== args.id));
+        emit('custom-pets-changed', pets().map(({ image: _i, ...m }) => m));
+        return null;
+      case 'pick_image':
+        // tests can preset window.__shimPickImage; otherwise use a normal file input
+        return (window as any).__shimPickImage ?? pickWithInput();
+      case 'export_custom_pet':
+        console.info('[shim] export', args.id);
+        return true;
+      case 'import_pet_pack':
+        return null;
+      case 'api_key_status':
+        return { dashscope: localStorage.getItem('pawse-key-dashscope') === '1', openai: localStorage.getItem('pawse-key-openai') === '1' };
+      case 'set_api_key':
+        // only a flag — never store a key in the browser
+        localStorage.setItem(`pawse-key-${args.provider}`, args.key ? '1' : '0');
+        return null;
+      case 'generate_pet_image':
+        await new Promise((r) => setTimeout(r, 600));
+        return mockGenerated(args.req.prompt);
       case 'get_autostart': return localStorage.getItem('pawse-autostart') === '1';
       case 'set_autostart':
         localStorage.setItem('pawse-autostart', args.enabled ? '1' : '0');

@@ -9,13 +9,18 @@
 //!
 //! M2 adds presence sensing (keyboard/mouse idle time + frontmost app, see `system.rs`),
 //! a quick launcher, launch-at-login and a global shortcut that opens the launcher.
+//! M3 adds custom pets (cut-out images + `.pawse` packs, see `custom.rs`) and
+//! text-to-image with the user's own key kept in the OS keychain (`genai.rs`).
 
+mod custom;
+mod genai;
 mod system;
 
 use std::{fs, path::PathBuf, sync::Mutex, thread, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_global_shortcut::ShortcutState;
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
@@ -154,6 +159,104 @@ fn get_autostart(app: AppHandle) -> bool {
     app.autolaunch().is_enabled().unwrap_or(false)
 }
 
+// ---------------- custom pets (M3) ----------------
+
+fn pets_changed(app: &AppHandle) {
+    let _ = app.emit("custom-pets-changed", custom::list(app));
+}
+
+#[tauri::command]
+fn list_custom_pets(app: AppHandle) -> Vec<custom::CustomPetMeta> {
+    custom::list(&app)
+}
+
+#[tauri::command]
+fn get_custom_pet(app: AppHandle, id: String) -> Result<custom::CustomPet, String> {
+    custom::get(&app, &id)
+}
+
+#[tauri::command]
+fn save_custom_pet(app: AppHandle, name: String, image: String, source: String) -> Result<custom::CustomPetMeta, String> {
+    let meta = custom::save(&app, &name, &image, &source)?;
+    pets_changed(&app);
+    Ok(meta)
+}
+
+#[tauri::command]
+fn rename_custom_pet(app: AppHandle, id: String, name: String) -> Result<custom::CustomPetMeta, String> {
+    let meta = custom::rename(&app, &id, &name)?;
+    pets_changed(&app);
+    Ok(meta)
+}
+
+#[tauri::command]
+fn delete_custom_pet(app: AppHandle, id: String) -> Result<(), String> {
+    custom::delete(&app, &id)?;
+    pets_changed(&app);
+    Ok(())
+}
+
+/// Native file picker → image as a data URL (None if cancelled).
+#[tauri::command]
+async fn pick_image(app: AppHandle) -> Result<Option<String>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("Images", &["png", "jpg", "jpeg", "webp", "gif", "heic", "bmp"])
+        .blocking_pick_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    custom::read_image_file(&path).map(Some)
+}
+
+#[tauri::command]
+async fn export_custom_pet(app: AppHandle, id: String) -> Result<bool, String> {
+    let (name, json) = custom::pack_json(&app, &id)?;
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("Pawse pet", &["pawse"])
+        .set_file_name(format!("{name}.pawse"))
+        .blocking_save_file();
+    let Some(fp) = picked else { return Ok(false) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    fs::write(path, json).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+#[tauri::command]
+async fn import_pet_pack(app: AppHandle) -> Result<Option<custom::CustomPetMeta>, String> {
+    let picked = app.dialog().file().add_filter("Pawse pet", &["pawse", "json"]).blocking_pick_file();
+    let Some(fp) = picked else { return Ok(None) };
+    let path = fp.into_path().map_err(|e| e.to_string())?;
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > 12 * 1024 * 1024 {
+        return Err("file too large".into());
+    }
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let meta = custom::import_pack(&app, &text)?;
+    pets_changed(&app);
+    Ok(Some(meta))
+}
+
+#[tauri::command]
+fn set_api_key(provider: String, key: String) -> Result<(), String> {
+    genai::set_key(&provider, &key)
+}
+
+#[tauri::command]
+fn api_key_status() -> std::collections::HashMap<String, bool> {
+    genai::PROVIDERS.iter().map(|p| (p.to_string(), genai::has_key(p))).collect()
+}
+
+#[tauri::command]
+async fn generate_pet_image(mut req: genai::GenRequest, zh: bool) -> Result<String, String> {
+    if req.prompt.trim().is_empty() {
+        return Err("empty description".into());
+    }
+    req.prompt = genai::pet_prompt(&req.prompt, zh);
+    genai::generate(req).await
+}
+
 #[tauri::command]
 fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     let al = app.autolaunch();
@@ -256,6 +359,7 @@ fn spawn_cursor_loop(app: AppHandle) {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_shortcuts([LAUNCHER_SHORTCUT])
@@ -282,7 +386,18 @@ pub fn run() {
             list_apps,
             launch,
             get_autostart,
-            set_autostart
+            set_autostart,
+            list_custom_pets,
+            get_custom_pet,
+            save_custom_pet,
+            rename_custom_pet,
+            delete_custom_pet,
+            pick_image,
+            export_custom_pet,
+            import_pet_pack,
+            set_api_key,
+            api_key_status,
+            generate_pet_image
         ])
         .setup(|app| {
             // A pet is not a "real" app window: no Dock icon, lives in the menu bar tray.

@@ -208,3 +208,5 @@ html, body {
 .menu-launch { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; padding: 0 2px; }
 .menu-launch button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .menu-empty { padding: 4px 10px 6px; font-size: 12px; color: var(--muted); }
+.menu-customs { flex-wrap: wrap; }
+.menu-customs button { flex: 1 0 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

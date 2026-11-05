@@ -3,18 +3,25 @@ import { invoke } from '@tauri-apps/api/core';
 import { emitTo } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
-  loadConfig, onConfigChange, saveConfig, LAUNCHER_KEY, PET_KINDS, REMINDER_KINDS, ROAM_PRESETS,
-  type AppConfig, type Lang, type PetKind, type Rect01,
+  loadConfig, onConfigChange, saveConfig, ACCESSORIES, AI_PROVIDERS, LAUNCHER_KEY, PET_KINDS, REMINDER_KINDS, ROAM_PRESETS,
+  type Accessory, type AiProvider, type AppConfig, type CustomPetMeta, type Lang, type PetKind, type Rect01,
 } from '../shared/config';
+import { listen } from '@tauri-apps/api/event';
 import { setLang, t } from '../shared/i18n';
 import { Animator } from '../pet/animator';
 import { petSVG } from '../pet/art';
+import { openCreator } from './creator';
 
 let cfg: AppConfig;
 let previews: Animator[] = [];
 let saveTimer = 0;
 let autostart = false;
 let apps: { name: string; path: string }[] = [];
+let customs: CustomPetMeta[] = [];
+/** id → image data URL, loaded lazily for the thumbnails */
+const thumbs = new Map<string, string>();
+let keys: Record<string, boolean> = {};
+let toast = '';
 
 const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const check = (id: string, on: boolean, label: string) =>
@@ -32,18 +39,41 @@ function render() {
     <header><h1>Pawse <span>爪憩</span></h1><span class="saved" id="saved">${t('settings.saved')} ✓</span></header>
 
     <section>
-      <h2>${t('settings.pet')}</h2>
+      <h2 class="with-action">${t('settings.pet')}<button id="importPack" class="link">${t('settings.importPack')}</button></h2>
       <div class="kinds">
         ${PET_KINDS.map((k) => `
-          <button class="kind ${k === cfg.pet.kind ? 'on' : ''}" data-kind="${k}">
-            <div class="kind-art">${petSVG(k)}</div>
+          <button class="kind ${!cfg.pet.custom && k === cfg.pet.kind ? 'on' : ''}" data-kind="${k}">
+            <div class="kind-art">${petSVG(k, cfg.pet.custom || k !== cfg.pet.kind ? {} : { hue: cfg.pet.hue, accessory: cfg.pet.accessory })}</div>
             <span>${t(`kind.${k}`)}</span>
           </button>`).join('')}
+        ${customs.map((c) => `
+          <button class="kind custom ${c.id === cfg.pet.custom ? 'on' : ''}" data-custom="${c.id}">
+            <div class="kind-art">${thumbs.has(c.id) ? `<img src="${thumbs.get(c.id)}" alt=""/>` : ''}</div>
+            <span>${escapeAttr(c.name)}</span>
+          </button>`).join('')}
+        <button class="kind new" id="newPet"><div class="kind-art plus">＋</div><span>${t('settings.newPet')}</span></button>
       </div>
+      ${activeCustom() ? `
+        <div class="row custom-tools">
+          <span>${t('settings.renamePet')}</span>
+          <input id="customName" maxlength="24" value="${escapeAttr(activeCustom()!.name)}"/>
+          <button id="exportPet">${t('settings.exportPack')}</button>
+          <button id="deletePet" class="danger">${t('settings.deletePet')}</button>
+        </div>` : ''}
       <label class="row">
         <span>${t('settings.name')}</span>
-        <input id="name" maxlength="24" value="${escapeAttr(cfg.pet.name)}" placeholder="${escapeAttr(t('settings.namePh', { name: t(`name.${cfg.pet.kind}`) }))}" />
+        <input id="name" maxlength="24" value="${escapeAttr(cfg.pet.name)}" placeholder="${escapeAttr(t('settings.namePh', { name: activeCustom()?.name ?? t(`name.${cfg.pet.kind}`) }))}" />
       </label>
+      <div class="row">
+        <span>${t('settings.hue')}</span>
+        <input id="hue" type="range" min="0" max="359" step="1" value="${cfg.pet.hue}" class="hue"/>
+        <button id="hueReset" class="mini" ${cfg.pet.hue ? '' : 'disabled'}>${t('settings.hueReset')}</button>
+      </div>
+      <div class="row">
+        <span>${t('settings.accessory')}</span>
+        <div class="chips">${availableAccessories().map((a) =>
+          `<button data-acc="${a}" class="${a === cfg.pet.accessory ? 'on' : ''}">${t(`acc.${a}`)}</button>`).join('')}</div>
+      </div>
       <label class="row">
         <span>${t('settings.size')}</span>
         <input id="scale" type="range" min="0.6" max="1.6" step="0.05" value="${cfg.pet.scale}" />
@@ -67,6 +97,7 @@ function render() {
       </div>
     </section>
 
+    ${toast ? `<div class="toast">${escapeAttr(toast)}</div>` : ''}
     ${workSection()}
     ${remindersSection()}
     ${launcherSection()}
@@ -85,6 +116,8 @@ function render() {
       </label>
     </section>
 
+    ${aiSection()}
+
     <section class="next">
       <h2>${t('settings.next')}</h2>
       <p class="desc">${t('settings.nextDesc')}</p>
@@ -94,6 +127,57 @@ function render() {
     (svg, i) => new Animator(svg, PET_KINDS[i]),
   );
   bind();
+  void loadThumbs();
+}
+
+const activeCustom = () => customs.find((c) => c.id === cfg.pet.custom);
+/** a plain picture has no known eye line, so only hats fit */
+const availableAccessories = (): Accessory[] =>
+  cfg.pet.custom ? ACCESSORIES.filter((a) => ['none', 'crown', 'bow'].includes(a)) : ACCESSORIES;
+
+async function loadThumbs() {
+  const missing = customs.filter((c) => !thumbs.has(c.id));
+  if (!missing.length) return;
+  for (const c of missing) {
+    try {
+      const p = await invoke<{ image: string }>('get_custom_pet', { id: c.id });
+      thumbs.set(c.id, p.image);
+    } catch { /* skip broken entries */ }
+  }
+  render();
+}
+
+function aiSection() {
+  const ai = cfg.ai;
+  const p = ai.provider;
+  const def = p === 'dashscope' ? 'wan2.2-t2i-flash' : 'gpt-image-1';
+  return `
+    <section id="aiSection">
+      <h2>${t('settings.ai')}</h2>
+      <p class="desc">${t('settings.aiDesc')}</p>
+      <div class="chips providers-row">${AI_PROVIDERS.map((x) =>
+        `<button data-aiprov="${x}" class="${x === p ? 'on' : ''}">${t(`ai.${x}`)} ${keys[x] ? '✓' : ''}</button>`).join('')}</div>
+      <div class="row">
+        <span>${t('settings.aiKey')}</span>
+        <input id="aiKey" type="password" autocomplete="off" placeholder="${escapeAttr(keys[p] ? t('settings.aiKeySaved') + ' ✓' : t('settings.aiKeyPh'))}"/>
+        <button id="aiKeySave" class="mini">${t('settings.aiKeySave')}</button>
+        ${keys[p] ? `<button id="aiKeyClear" class="mini">${t('settings.aiKeyClear')}</button>` : ''}
+      </div>
+      ${p === 'dashscope' ? `
+        <label class="row"><span>${t('settings.aiRegion')}</span>
+          <select id="aiRegion">
+            <option value="cn" ${ai.dashscope.region === 'cn' ? 'selected' : ''}>${t('settings.aiRegionCn')}</option>
+            <option value="intl" ${ai.dashscope.region === 'intl' ? 'selected' : ''}>${t('settings.aiRegionIntl')}</option>
+          </select></label>` : ''}
+      <label class="row"><span>${t('settings.aiModel')}</span>
+        <input id="aiModel" maxlength="64" value="${escapeAttr(p === 'dashscope' ? ai.dashscope.model : ai.openai.model)}" placeholder="${escapeAttr(t('settings.aiModelPh', { model: def }))}"/></label>
+    </section>`;
+}
+
+function flashToast(msg: string) {
+  toast = msg;
+  render();
+  setTimeout(() => { if (toast === msg) { toast = ''; render(); } }, 2400);
 }
 
 function workSection() {
@@ -154,9 +238,78 @@ function launcherSection() {
 }
 
 function bind() {
-  app.querySelectorAll<HTMLButtonElement>('.kind').forEach((b) =>
-    b.addEventListener('click', () => update({ pet: { ...cfg.pet, kind: b.dataset.kind as PetKind } }, true)),
+  app.querySelectorAll<HTMLButtonElement>('.kind[data-kind]').forEach((b) =>
+    b.addEventListener('click', () => update({ pet: { ...cfg.pet, kind: b.dataset.kind as PetKind, custom: '' } }, true)),
   );
+  app.querySelectorAll<HTMLButtonElement>('.kind[data-custom]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const accessory = ['none', 'crown', 'bow'].includes(cfg.pet.accessory) ? cfg.pet.accessory : 'none';
+      update({ pet: { ...cfg.pet, custom: b.dataset.custom!, accessory } }, true);
+    }),
+  );
+  app.querySelector('#newPet')!.addEventListener('click', () => newPet());
+  const hue = app.querySelector<HTMLInputElement>('#hue')!;
+  hue.addEventListener('input', () => update({ pet: { ...cfg.pet, hue: Number(hue.value) } }));
+  hue.addEventListener('change', () => render());
+  app.querySelector('#hueReset')!.addEventListener('click', () => update({ pet: { ...cfg.pet, hue: 0 } }, true));
+  app.querySelectorAll<HTMLButtonElement>('[data-acc]').forEach((b) =>
+    b.addEventListener('click', () => update({ pet: { ...cfg.pet, accessory: b.dataset.acc as Accessory } }, true)),
+  );
+  const customName = app.querySelector<HTMLInputElement>('#customName');
+  customName?.addEventListener('change', async () => {
+    const c = activeCustom();
+    if (!c || !customName.value.trim()) return;
+    await invoke('rename_custom_pet', { id: c.id, name: customName.value });
+  });
+  app.querySelector('#exportPet')?.addEventListener('click', async () => {
+    const c = activeCustom();
+    if (c && (await invoke<boolean>('export_custom_pet', { id: c.id }).catch(() => false))) flashToast(t('settings.exported'));
+  });
+  app.querySelector('#deletePet')?.addEventListener('click', async () => {
+    const c = activeCustom();
+    if (!c || !confirm(t('settings.deleteConfirm', { name: c.name }))) return;
+    await invoke('delete_custom_pet', { id: c.id });
+    update({ pet: { ...cfg.pet, custom: '' } }, true);
+  });
+  app.querySelector('#importPack')?.addEventListener('click', async () => {
+    try {
+      const meta = await invoke<CustomPetMeta | null>('import_pet_pack');
+      if (meta) {
+        update({ pet: { ...cfg.pet, custom: meta.id } });
+        flashToast(t('settings.imported', { name: meta.name }));
+      }
+    } catch (e) {
+      flashToast(String(e));
+    }
+  });
+
+  // AI provider + key (the key goes straight to the keychain; it is never read back)
+  app.querySelectorAll<HTMLButtonElement>('[data-aiprov]').forEach((b) =>
+    b.addEventListener('click', () => update({ ai: { ...cfg.ai, provider: b.dataset.aiprov as AiProvider } }, true)),
+  );
+  const keyIn = app.querySelector<HTMLInputElement>('#aiKey')!;
+  const saveKey = async (key: string) => {
+    try {
+      await invoke('set_api_key', { provider: cfg.ai.provider, key });
+      keys = await invoke<Record<string, boolean>>('api_key_status');
+      flashToast(key ? t('settings.aiKeySaved') : t('settings.saved'));
+    } catch (e) {
+      flashToast(String(e));
+    }
+  };
+  app.querySelector('#aiKeySave')!.addEventListener('click', () => keyIn.value.trim() && void saveKey(keyIn.value));
+  keyIn.addEventListener('keydown', (e) => e.key === 'Enter' && keyIn.value.trim() && void saveKey(keyIn.value));
+  app.querySelector('#aiKeyClear')?.addEventListener('click', () => void saveKey(''));
+  app.querySelector<HTMLSelectElement>('#aiRegion')?.addEventListener('change', (e) =>
+    update({ ai: { ...cfg.ai, dashscope: { ...cfg.ai.dashscope, region: (e.target as HTMLSelectElement).value as 'cn' | 'intl' } } }),
+  );
+  const model = app.querySelector<HTMLInputElement>('#aiModel')!;
+  model.addEventListener('change', () => {
+    const v = model.value.trim();
+    update({ ai: cfg.ai.provider === 'dashscope'
+      ? { ...cfg.ai, dashscope: { ...cfg.ai.dashscope, model: v } }
+      : { ...cfg.ai, openai: { model: v } } });
+  });
   app.querySelector<HTMLInputElement>('#name')!.addEventListener('input', (e) =>
     update({ pet: { ...cfg.pet, name: (e.target as HTMLInputElement).value } }),
   );
@@ -246,6 +399,19 @@ function flashSaved() {
   setTimeout(() => s?.classList.remove('show'), 1200);
 }
 
+function newPet() {
+  openCreator({
+    cfg,
+    keys,
+    onSaved: (meta) => {
+      customs = [...customs.filter((c) => c.id !== meta.id), meta];
+      const accessory = ['none', 'crown', 'bow'].includes(cfg.pet.accessory) ? cfg.pet.accessory : 'none';
+      update({ pet: { ...cfg.pet, custom: meta.id, accessory } }, true);
+    },
+    onNeedKey: () => document.querySelector('#aiSection')?.scrollIntoView({ behavior: 'smooth' }),
+  });
+}
+
 function update(patch: Partial<AppConfig>, rerender = false) {
   cfg = { ...cfg, ...patch };
   if (rerender) render();
@@ -263,11 +429,17 @@ const escapeAttr = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt
 
 async function boot() {
   cfg = await loadConfig();
-  [autostart, apps] = await Promise.all([
+  [autostart, apps, customs, keys] = await Promise.all([
     invoke<boolean>('get_autostart').catch(() => false),
     invoke<{ name: string; path: string }[]>('list_apps').catch(() => []),
+    invoke<CustomPetMeta[]>('list_custom_pets').catch(() => []),
+    invoke<Record<string, boolean>>('api_key_status').catch(() => ({})),
   ]);
   render();
+  await listen<CustomPetMeta[]>('custom-pets-changed', (e) => {
+    customs = e.payload ?? [];
+    if (!document.querySelector('.modal-back')) render();
+  });
   await onConfigChange((c) => {
     // only re-render for changes made elsewhere (e.g. the on-screen roam editor)
     const focusedInput = document.activeElement instanceof HTMLInputElement;

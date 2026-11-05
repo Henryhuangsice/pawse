@@ -4,6 +4,18 @@ import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 export type PetKind = 'cat' | 'astro' | 'human';
 export const PET_KINDS: PetKind[] = ['cat', 'astro', 'human'];
 export type Lang = 'auto' | 'zh' | 'en';
+export type Accessory = 'none' | 'crown' | 'shades' | 'bow' | 'headphones';
+export const ACCESSORIES: Accessory[] = ['none', 'crown', 'shades', 'bow', 'headphones'];
+export type AiProvider = 'dashscope' | 'openai';
+export const AI_PROVIDERS: AiProvider[] = ['dashscope', 'openai'];
+
+/** A pet made by the user (stored by the Rust side under app data, not in this config). */
+export interface CustomPetMeta {
+  id: string;
+  name: string;
+  source: 'photo' | 'ai' | 'pack';
+  created: number;
+}
 
 /** A rectangle expressed as fractions (0..1) of the screen, so it survives resolution changes. */
 export interface Rect01 {
@@ -49,6 +61,11 @@ export interface AppConfig {
     name: string;
     /** 0.6 .. 1.6 */
     scale: number;
+    /** id of a custom pet; empty = use the built-in `kind` */
+    custom: string;
+    /** colour shift for built-in pets, degrees 0..359 */
+    hue: number;
+    accessory: Accessory;
   };
   /** Where the pet is allowed to roam. Keep it away from your main work area. */
   roam: Rect01;
@@ -70,6 +87,12 @@ export interface AppConfig {
   launcher: LauncherItem[];
   /** the pet prefers spots that don't cover the window you're working in */
   avoidActiveWindow: boolean;
+  /** text-to-image for custom pets; API keys live in the OS keychain, not here */
+  ai: {
+    provider: AiProvider;
+    dashscope: { region: 'cn' | 'intl'; model: string };
+    openai: { model: string };
+  };
 }
 
 export const ROAM_PRESETS: Record<'bottomRight' | 'bottomBand' | 'rightColumn' | 'full', Rect01> = {
@@ -81,7 +104,7 @@ export const ROAM_PRESETS: Record<'bottomRight' | 'bottomBand' | 'rightColumn' |
 
 export const DEFAULT_CONFIG: AppConfig = {
   version: 1,
-  pet: { kind: 'cat', name: '', scale: 1 },
+  pet: { kind: 'cat', name: '', scale: 1, custom: '', hue: 0, accessory: 'none' },
   roam: { ...ROAM_PRESETS.bottomRight },
   lang: 'auto',
   work: { enabled: true, days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00', lunchStart: '12:00', lunchEnd: '13:30' },
@@ -98,6 +121,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     { name: 'DeepSeek', target: 'https://chat.deepseek.com' },
   ],
   avoidActiveWindow: true,
+  ai: { provider: 'dashscope', dashscope: { region: 'cn', model: '' }, openai: { model: '' } },
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -125,6 +149,9 @@ export function normalizeConfig(raw: unknown): AppConfig {
       kind,
       name: typeof pet.name === 'string' ? pet.name.slice(0, 24) : '',
       scale: clamp(num(pet.scale, 1), 0.6, 1.6),
+      custom: typeof pet.custom === 'string' && /^[a-z0-9-]{1,40}$/.test(pet.custom) ? pet.custom : '',
+      hue: Math.round(((num(pet.hue, 0) % 360) + 360) % 360),
+      accessory: ACCESSORIES.includes(pet.accessory as Accessory) ? (pet.accessory as Accessory) : 'none',
     },
     roam: {
       x,
@@ -147,8 +174,18 @@ export function normalizeConfig(raw: unknown): AppConfig {
           .map((i: any) => ({ name: i.name.slice(0, 24), target: i.target.trim().slice(0, 500) }))
       : structuredClone(DEFAULT_CONFIG.launcher),
     avoidActiveWindow: bool(r.avoidActiveWindow, true),
+    ai: {
+      provider: AI_PROVIDERS.includes(obj(r.ai).provider) ? obj(r.ai).provider : 'dashscope',
+      dashscope: {
+        region: obj(obj(r.ai).dashscope).region === 'intl' ? 'intl' : 'cn',
+        model: modelName(obj(obj(r.ai).dashscope).model),
+      },
+      openai: { model: modelName(obj(obj(r.ai).openai).model) },
+    },
   };
 }
+
+const modelName = (v: unknown) => (typeof v === 'string' && /^[\w.:-]{0,64}$/.test(v.trim()) ? v.trim() : '');
 
 function normalizeWork(w: Record<string, any>): WorkConfig {
   const d = DEFAULT_CONFIG.work;
