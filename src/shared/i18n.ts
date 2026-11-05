@@ -3,11 +3,11 @@ import type { Lang, PetKind } from './config';
 export type Locale = 'zh' | 'en';
 
 const zh = {
-  'kind.cat': '像素猫',
-  'kind.dog': '赛博狗',
+  'kind.cat': '像素飞猫',
+  'kind.dog': '柴犬',
   'kind.human': '战士',
-  'name.cat': '比特',
-  'name.dog': '霓虹',
+  'name.cat': '彗星',
+  'name.dog': '柿子',
   'name.human': '阿燃',
 
   'menu.pet': '摸摸头',
@@ -47,11 +47,11 @@ const zh = {
 type Key = keyof typeof zh;
 
 const en: Record<Key, string> = {
-  'kind.cat': 'Pixel Cat',
-  'kind.dog': 'Cyber Dog',
+  'kind.cat': 'Pixel Comet',
+  'kind.dog': 'Shiba',
   'kind.human': 'Fighter',
-  'name.cat': 'Bit',
-  'name.dog': 'Neon',
+  'name.cat': 'Comet',
+  'name.dog': 'Kaki',
   'name.human': 'Blaze',
 
   'menu.pet': 'Pat head',
@@ -94,13 +94,13 @@ const LINES: Record<Locale, Record<LineCat, Partial<Record<PetKind | 'any', stri
   zh: {
     greet: { any: ['我来陪你上班啦~', '今天也一起加油吧！', '嗨，{name}在这儿哦'] },
     click: {
-      cat: ['喵~ (8-bit)', '喵呜？', '叮！获得 1 点好感', '呼噜呼噜…'],
-      dog: ['汪！系统在线', '检测到主人 ✓', '汪汪~ 信号满格', '尾巴电机过热中！'],
+      cat: ['喵~ 起飞！', '喵呜？', '叮！获得 1 点好感', '彩虹尾巴充能中~'],
+      dog: ['汪。', '嗯？叫我吗', '尾巴替我说了：开心', '陪你把活干完'],
       human: ['哈！', '修炼一下吗？', '摸鱼被我发现了？', '你今天也很强！'],
     },
     annoyed: { any: ['别戳啦！', '再戳要生气了 ˋ^ˊ', '晕了晕了…'] },
     petting: { any: ['好舒服~', '再摸摸~', '♥ ♥ ♥'] },
-    wake: { cat: ['唔…刚梦到像素小鱼干', '啊！我没睡！'], dog: ['系统重启完成', '低功耗模式已退出'], human: ['我只是在冥想…', '啊，开会了吗？'] },
+    wake: { cat: ['唔…刚飞过一片星云', '啊！我没睡！'], dog: ['……刚眯了一会儿', '我醒着呢'] , human: ['我只是在冥想…', '啊，开会了吗？'] },
     sleep: { any: ['好困…睡一小会儿', 'Zzz…'] },
     dropped: { any: ['哇——', '轻点放嘛~', '着陆成功！'] },
     switch: { any: ['变身！', '新造型怎么样？'] },
@@ -109,13 +109,13 @@ const LINES: Record<Locale, Record<LineCat, Partial<Record<PetKind | 'any', stri
   en: {
     greet: { any: ["I'm here for your workday!", "Let's do great today!", 'Hi, {name} is here'] },
     click: {
-      cat: ['Meow~ (8-bit)', 'Mrrp?', 'Ding! +1 affection', 'Purr purr…'],
-      dog: ['Woof! System online', 'Owner detected ✓', 'Arf~ full signal', 'Tail motor overheating!'],
+      cat: ['Meow~ liftoff!', 'Mrrp?', 'Ding! +1 affection', 'Charging rainbow tail~'],
+      dog: ['Woof.', 'Hm? You called?', 'My tail says: happy', "Let's finish this together"],
       human: ['Hah!', 'Training time?', 'Caught you slacking?', "You're unstoppable today!"],
     },
     annoyed: { any: ['Stop poking!', "I'm getting grumpy ˋ^ˊ", 'So dizzy…'] },
     petting: { any: ['That feels nice~', 'More pats~', '♥ ♥ ♥'] },
-    wake: { cat: ['Mm… dreamt of pixel fish', "I wasn't asleep!"], dog: ['Reboot complete', 'Exiting low-power mode'], human: ['Just meditating…', 'Is the meeting starting?'] },
+    wake: { cat: ['Mm… flew through a nebula', "I wasn't asleep!"], dog: ['…just a quick doze', "I'm awake"], human: ['Just meditating…', 'Is the meeting starting?'] },
     sleep: { any: ['So sleepy… quick nap', 'Zzz…'] },
     dropped: { any: ['Whoa—', 'Gently please~', 'Touchdown!'] },
     switch: { any: ['Ta-da!', 'How do I look?'] },

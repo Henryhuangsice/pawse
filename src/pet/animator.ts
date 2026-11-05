@@ -2,17 +2,17 @@ import type { PetKind } from '../shared/config';
 import { META, PX, type PetMeta } from './art';
 
 export type AnimMode = 'idle' | 'walk' | 'sleep' | 'drag';
-export type Reaction = 'jump' | 'spin' | 'happy' | 'shake' | 'startle' | 'wave' | 'land' | 'hop' | 'powerup' | 'glitch';
+export type Reaction = 'jump' | 'spin' | 'happy' | 'shake' | 'startle' | 'wave' | 'land' | 'hop' | 'powerup';
 
 const DURATION: Record<Reaction, number> = {
   jump: 620, spin: 700, happy: 1100, shake: 650, startle: 520,
-  wave: 1400, land: 280, hop: 320, powerup: 1100, glitch: 420,
+  wave: 1400, land: 280, hop: 320, powerup: 1100,
 };
 
 const PART_NAMES = [
   'root', 'body', 'head', 'tail', 'tail2', 'earL', 'earR', 'legL', 'legR', 'armL', 'armR',
   'eyeL', 'eyeR', 'eyes', 'eyesHappy', 'eyesClosed', 'blush', 'mouth', 'mouthOpen', 'shadow',
-  'aura', 'aura2', 'sparks', 'neon', 'led', 'led2', 'scan', 'circuit',
+  'aura', 'aura2', 'ring', 'sparks', 'backdrop', 'trail', 'trail2', 'starsA', 'starsB',
 ] as const;
 type PartName = (typeof PART_NAMES)[number];
 
@@ -28,7 +28,7 @@ const show = (el: SVGGraphicsElement | undefined, on: boolean) => el && (el.styl
  * Procedural animation for a part-rigged SVG pet. No sprite sheets:
  * breathing, blinking, gaze, walk cycle, tail, ears, squash & stretch and drag swing are
  * computed per frame from the current mode + transient reactions, then applied according
- * to the pet's render style (smooth, pixel-snapped, neon, or power-up).
+ * to the pet's render style (pixel-snapped, flat, or power-up).
  */
 export class Animator {
   mode: AnimMode = 'idle';
@@ -53,10 +53,8 @@ export class Animator {
   private lastStep = 0;
   private power = 0;
   private powerHoldUntil = 0;
-  private glitchUntil = 0;
-  private nextGlitch = 0;
 
-  constructor(private svg: SVGSVGElement, kind: PetKind) {
+  constructor(svg: SVGSVGElement, kind: PetKind) {
     for (const n of PART_NAMES) {
       const el = svg.querySelector<SVGGraphicsElement>(`[data-p="${n}"]`);
       if (el) this.p[n] = el;
@@ -76,7 +74,6 @@ export class Animator {
     if (type === 'happy' || type === 'wave') this.happyUntil = now + DURATION[type] + 300;
     if (type === 'startle') this.surpriseUntil = now + 700;
     if (type === 'powerup') this.powerHoldUntil = now + 3200;
-    if (type === 'glitch' || (this.m.style === 'neon' && type !== 'hop')) this.glitchUntil = now + 220;
   }
 
   happy(ms: number, now = performance.now()) {
@@ -141,7 +138,6 @@ export class Animator {
             if (k < 0.35) { sy = 1 - 0.12 * Math.sin((k / 0.35) * Math.PI); sx = 2 - sy; quake = 1.6; }
             else { jumpY = 14 * Math.sin(((k - 0.35) / 0.65) * Math.PI); quake = 0.8; }
             break;
-          case 'glitch': break;
         }
       }
     }
@@ -188,7 +184,7 @@ export class Animator {
       return;
     }
 
-    // ---- smooth styles (neon / power) ----
+    // ---- smooth styles (flat / power) ----
     if (p.root) {
       const lean = walking ? 4 * this.dir : 0;
       const jx = quake ? (Math.random() - 0.5) * 2 * quake : 0;
@@ -262,7 +258,10 @@ export class Animator {
       p[side]?.setAttribute('transform', `${tr(gx, gy)} ${scaleAt(eyeScale, Math.max(0.08, lid) * eyeScale, m[side])}`);
     }
 
-    if (m.style === 'neon') this.applyNeon(T, now, sleeping);
+    if (p.backdrop) {
+      const k = happy ? 1.1 : this.hover ? 1.06 : 1 + 0.025 * Math.sin(T * 1.3);
+      p.backdrop.setAttribute('transform', scaleAt(k, k, [60, 58]));
+    }
     if (m.style === 'power') this.applyPower(T, dt, now, sleeping);
   }
 
@@ -274,8 +273,18 @@ export class Animator {
     const p = this.p, m = this.m;
     const flip = this.dir * (s.spinX < 0 ? -1 : 1);
     const shakeX = s.dragging ? q(Math.sin(s.T * 9) * 6) : 0;
-    p.root?.setAttribute('transform', `${tr(shakeX, -q(s.jumpY + (s.walking ? PX * (Math.sin(s.cyc * 2) > 0 ? 1 : 0) : 0)))} ${scaleAt(flip, 1, m.root)}`);
-    if (p.shadow) p.shadow.setAttribute('opacity', String(s.jumpY > 8 || s.dragging ? 0.08 : 0.18));
+    // always airborne: a slow one-pixel hover, faster while flying
+    const floatY = s.sleeping ? 0 : Math.sin(s.T * (s.walking ? 7 : 3)) > 0 ? PX : 0;
+    p.root?.setAttribute('transform', `${tr(shakeX, -q(s.jumpY) - floatY)} ${scaleAt(flip, 1, m.root)}`);
+    if (p.shadow) p.shadow.setAttribute('opacity', String(s.jumpY > 8 || s.dragging ? 0.06 : floatY ? 0.1 : 0.14));
+
+    // synthwave ribbon waves; it fades out while napping
+    const ribbonB = Math.sin(s.T * (s.walking || s.showHappyEyes ? 14 : 6)) > 0;
+    show(p.trail, !s.sleeping && !ribbonB);
+    show(p.trail2, !s.sleeping && ribbonB);
+    const twinkle = Math.sin(s.T * 4.2) > 0;
+    show(p.starsA, twinkle);
+    show(p.starsB, !twinkle);
 
     // head bobs one pixel: breathing at rest, nodding off while asleep
     const breathe = Math.sin(s.T * (s.sleeping ? 1.4 : 2.2)) > 0.3;
@@ -300,27 +309,6 @@ export class Animator {
     p.eyes?.setAttribute('transform', tr(gx, gy));
   }
 
-  // ---------------- style: neon ----------------
-  private applyNeon(T: number, now: number, sleeping: boolean) {
-    const p = this.p;
-    const dim = sleeping ? 0.35 : 1;
-    p.neon?.setAttribute('opacity', String(dim * (0.7 + 0.3 * Math.sin(T * 3))));
-    p.circuit?.setAttribute('opacity', String(dim * (0.55 + 0.45 * Math.abs(Math.sin(T * 1.7)))));
-    p.led?.setAttribute('opacity', String(Math.sin(T * 5) > 0 ? 1 : 0.25));
-    p.led2?.setAttribute('opacity', String(dim * (0.5 + 0.5 * Math.sin(T * 2.2))));
-    // visor scanline sweeps top → bottom
-    const scanY = sleeping ? -20 : ((T * 18) % 18) - 1;
-    p.scan?.setAttribute('transform', tr(0, scanY));
-    if (p.eyes) p.eyes.setAttribute('opacity', String(dim));
-
-    if (this.nextGlitch === 0) this.nextGlitch = now + 3000;
-    if (!sleeping && now > this.nextGlitch) {
-      this.glitchUntil = now + 140 + Math.random() * 120;
-      this.nextGlitch = now + 4000 + Math.random() * 7000;
-    }
-    this.svg.classList.toggle('glitch', now < this.glitchUntil);
-  }
-
   // ---------------- style: power ----------------
   private applyPower(T: number, dt: number, now: number, sleeping: boolean) {
     const p = this.p;
@@ -334,13 +322,15 @@ export class Animator {
 
     const flick = 1 + 0.05 * Math.sin(T * 23) + 0.03 * Math.sin(T * 37);
     if (p.aura) {
-      p.aura.setAttribute('opacity', (pw * 0.9).toFixed(3));
-      p.aura.setAttribute('transform', scaleAt(flick * (0.85 + 0.15 * pw), (0.8 + 0.2 * pw) * (2 - flick), [60, 111]));
+      p.aura.setAttribute('opacity', (pw * 0.95).toFixed(3));
+      p.aura.setAttribute('transform', scaleAt(flick * (0.8 + 0.2 * pw), flick * (0.8 + 0.2 * pw), [60, 62]));
     }
-    if (p.aura2) {
-      p.aura2.setAttribute('opacity', (pw * 0.8).toFixed(3));
-      p.aura2.setAttribute('transform', scaleAt(2 - flick, flick, [60, 110]));
+    if (p.aura2) p.aura2.setAttribute('opacity', (pw * 0.75).toFixed(3));
+    if (p.ring) {
+      p.ring.setAttribute('opacity', (pw * 0.85).toFixed(3));
+      p.ring.setAttribute('transform', `${rot(T * 40, [60, 62])} ${scaleAt(0.9 + 0.1 * pw, 0.9 + 0.1 * pw, [60, 62])}`);
     }
+    if (p.aura2) p.aura2.setAttribute('transform', tr(0, 20 - ((T * 90) % 40)));
     if (p.sparks) {
       const on = pw > 0.6 && Math.random() < 0.45;
       p.sparks.setAttribute('opacity', on ? String(pw) : '0');

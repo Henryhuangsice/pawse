@@ -2,17 +2,16 @@ import type { PetKind } from '../shared/config';
 
 /**
  * Built-in pets are vector art split into named parts (`data-p="..."`).
- * The Animator moves those parts procedurally; each pet also declares a render style
- * that changes how motion is applied:
- *   - pixel : 8-bit cat. Motion snaps to the pixel grid and steps at 12 fps, frame-swapped tail.
- *   - neon  : cyberpunk robo-dog. Neon pulse, visor scanline, occasional RGB glitch.
- *   - power : original anime-style fighter. Hover charges power → golden hair, aura, sparks.
+ * The Animator moves those parts procedurally; each pet declares a render style:
+ *   - pixel : original flying pixel cat with a synthwave trail. Grid-snapped, 12 fps, frame swaps.
+ *   - flat  : geometric flat-design Shiba. Restrained palette, poster-style backdrop disc.
+ *   - power : sleek original fighter. Hover charges power → golden hair, geometric aura, speed lines.
  *
  * Elements with `data-power` fade in with the power level, `data-unpower` fade out.
  * Coordinate system: viewBox 0 0 120 120, ground line at y = 112.
  */
 
-export type RenderStyle = 'pixel' | 'neon' | 'power';
+export type RenderStyle = 'pixel' | 'flat' | 'power';
 type Pt = [number, number];
 
 export interface PetMeta {
@@ -37,69 +36,86 @@ export const PX = 4; // one "pixel" of the pixel-art cat, in viewBox units
 export const META: Record<PetKind, PetMeta> = {
   cat: {
     style: 'pixel', earTwitch: false,
-    root: [60, 112], body: [60, 112], head: [60, 84],
-    legL: [44, 106], legR: [76, 106], eyeL: [44, 62], eyeR: [76, 62],
+    root: [60, 112], body: [60, 112], head: [92, 60],
+    legL: [44, 84], legR: [70, 84], eyeL: [84, 60], eyeR: [104, 60],
   },
   dog: {
-    style: 'neon', earTwitch: true,
-    root: [60, 112], body: [60, 112], head: [60, 72], tail: [84, 96],
-    earL: [40, 37], earR: [80, 37], legL: [47, 106], legR: [73, 106],
-    eyeL: [47.5, 46], eyeR: [72.5, 46],
+    style: 'flat', earTwitch: true,
+    root: [60, 112], body: [60, 112], head: [60, 68], tail: [80, 96],
+    earL: [44, 30], earR: [76, 30], legL: [52, 104], legR: [68, 104],
+    eyeL: [50.5, 44], eyeR: [69.5, 44],
   },
   human: {
     style: 'power', earTwitch: false,
-    root: [60, 112], body: [60, 108], head: [60, 72],
-    armL: [42, 80], armR: [78, 80], legL: [50, 106], legR: [70, 106],
-    eyeL: [50, 51], eyeR: [70, 51],
+    root: [60, 112], body: [60, 96], head: [60, 52], tail: [72, 60],
+    armL: [46, 62], armR: [74, 62], legL: [51, 92], legR: [69, 92],
+    eyeL: [53, 38], eyeR: [67, 38],
   },
 };
 
-// ---------------------------------------------------------------- pixel cat
+// ---------------------------------------------------------------- flying pixel cat (original)
 
 const CAT_PAL: Record<string, string> = {
-  K: '#2b1d3a', // outline
-  O: '#ff9f43', // fur
-  D: '#e0702a', // stripes
-  W: '#fff1dc', // belly / muzzle
-  P: '#ff6f9c', // pink
-  E: '#2b1d3a', // eye
-  H: '#ffffff', // eye highlight
-  S: '#2b1d3a', // shadow
+  K: '#241a33', // outline
+  O: '#ffa64d', // fur
+  D: '#e2702b', // stripes
+  W: '#fff3e2', // belly
+  P: '#ff6fa5', // pink
+  E: '#241a33', // eye
+  H: '#ffffff', // highlight
+  S: '#241a33', // ground shadow
+  '1': '#ff3df2', // trail: magenta
+  '2': '#a35cff', // violet
+  '3': '#3d7bff', // blue
+  '4': '#2ef2ff', // cyan
+  '*': '#ffffff', // star
+  '+': '#ffe066', // star core
 };
 
 const CAT = {
   head: [
-    '.KK..........KK.',
-    '.KOK........KOK.',
-    '.KPOK......KOPK.',
-    'KOPOOKKKKKKOOPOK',
-    'KOOOOODDDDOOOOOK',
-    'KOOOOOODDOOOOOOK',
-    'KOOOOOOOOOOOOOOK',
-    'KOOOOOOOOOOOOOOK',
-    'KWOOOOOPPOOOOOWK',
-    'KWWOOOOOOOOOOWWK',
-    '.KWWOOOOOOOOWWK.',
-    '..KKKKKKKKKKKK..',
+    '.KK.....KK.',
+    '.KOK...KOK.',
+    '.KPOKKKOPK.',
+    'KOOODDDOOOK',
+    'KOOOOOOOOOK',
+    'KOOOOOOOOOK',
+    'KOOOOKOOOOK',
+    'KOOOOOOOOOK',
+    '.KKKKKKKKK.',
   ],
   body: [
+    '.KKKKKKKKKK.',
+    'KOODOOODOOOK',
+    'KOOODOOODOOK',
     'KOOOOOOOOOOK',
-    'KOODWWWWDOOK',
+    'KODOOODOOOOK',
     'KOOWWWWWWOOK',
-    'KODWWWWWWDOK',
-    'KOOOWWWWOOOK',
+    'KOWWWWWWWWOK',
     '.KKKKKKKKKK.',
   ],
-  tailA: ['...KK', '..KOK', '..KDK', '.KOK.', 'KODK.', 'KOK..', 'KOK..'],
-  tailB: ['....KK', '...KOK', '..KDK.', '.KOK..', 'KODK..', 'KOK...', 'KOK...'],
-  leg: ['KWWK', '.KK.'],
+  legsBack: ['KOK.KOK', 'KKK.KKK'],
+  legsFront: ['KOK.KOK', 'KKK.KKK'],
+  tailA: ['KK...', 'KOK..', '.KOK.', '..KOK', '...KO'],
+  tailB: ['...KO', '..KOK', '.KOK.', 'KOK..', 'KK...'],
   eye: ['HE', 'EE'],
   eyeClosed: ['EE'],
-  happyL: ['.E.', 'E.E'],
-  mouth: ['K..K', '.KK.'],
-  mouthOpen: ['KKKK', 'KPPK', '.KK.'],
-  blush: ['PP'],
-  shadow: ['SSSSSSSSSSSS'],
+  happy: ['.E.', 'E.E'],
+  mouth: ['K.K.K'],
+  mouthOpen: ['KPPPK', '.KKK.'],
+  blush: ['P'],
+  shadow: ['SSSSSSSSSSSSSS'],
+  // synthwave trail: 4 colour bands, segments alternately raised for a ribbon wave
+  trailA: [
+    '111...111...', '111111111111', '222111222111', '222222222222',
+    '333222333222', '333333333333', '444333444333', '444444444444', '...444...444',
+  ],
+  trailB: [
+    '...111...111', '111111111111', '111222111222', '222222222222',
+    '222333222333', '333333333333', '333444333444', '444444444444', '444...444...',
+  ],
+  starA: ['.*.', '*+*', '.*.'],
+  starB: ['*'],
 };
 
 /** Grid rows → merged <rect> runs, crisp at any scale. */
@@ -120,153 +136,153 @@ function pix(grid: string[], ox: number, oy: number, pal = CAT_PAL): string {
 }
 
 function catSVG(): string {
-  // 1.25× about the ground point: each art pixel becomes 5 units, filling the frame like the other pets
-  return `<g transform="translate(60 112) scale(1.25) translate(-60 -112)">
-  <g data-p="shadow" opacity=".18">${pix(CAT.shadow, 9, 28)}</g>
+  return `
+  <g data-p="shadow" opacity=".14">${pix(CAT.shadow, 8, 28)}</g>
   <g data-p="root" shape-rendering="crispEdges">
-    <g data-p="tail">${pix(CAT.tailA, 20, 16)}</g>
-    <g data-p="tail2" style="display:none">${pix(CAT.tailB, 20, 16)}</g>
-    <g data-p="body">${pix(CAT.body, 9, 20)}</g>
-    <g data-p="legL">${pix(CAT.leg, 9, 26)}</g>
-    <g data-p="legR">${pix(CAT.leg, 17, 26)}</g>
-    <g data-p="head">
-      ${pix(CAT.head, 7, 9)}
-      <g data-p="blush">${pix(CAT.blush, 9, 17)}${pix(CAT.blush, 19, 17)}</g>
-      <g data-p="eyes">
-        <g data-p="eyeL">${pix(CAT.eye, 10, 15)}</g>
-        <g data-p="eyeR">${pix(CAT.eye, 18, 15)}</g>
-      </g>
-      <g data-p="eyesClosed" style="display:none">${pix(CAT.eyeClosed, 10, 16)}${pix(CAT.eyeClosed, 18, 16)}</g>
-      <g data-p="eyesHappy" style="display:none">${pix(CAT.happyL, 9, 15)}${pix(CAT.happyL, 18, 15)}</g>
-      <g data-p="mouth">${pix(CAT.mouth, 13, 18)}</g>
-      <g data-p="mouthOpen" style="display:none">${pix(CAT.mouthOpen, 13, 18)}</g>
+    <g data-p="stars">
+      <g data-p="starsA">${pix(CAT.starA, 3, 6)}${pix(CAT.starB, 15, 4)}${pix(CAT.starA, 1, 23)}</g>
+      <g data-p="starsB" style="display:none">${pix(CAT.starB, 4, 7)}${pix(CAT.starA, 14, 3)}${pix(CAT.starB, 2, 24)}</g>
     </g>
-  </g></g>`;
+    <g data-p="trail">${pix(CAT.trailA, -2, 12)}</g>
+    <g data-p="trail2" style="display:none">${pix(CAT.trailB, -2, 12)}</g>
+    <g data-p="tail">${pix(CAT.tailA, 4, 10)}</g>
+    <g data-p="tail2" style="display:none">${pix(CAT.tailB, 4, 13)}</g>
+    <g data-p="legL">${pix(CAT.legsBack, 8, 20)}</g>
+    <g data-p="legR">${pix(CAT.legsFront, 15, 20)}</g>
+    <g data-p="body">${pix(CAT.body, 8, 12)}</g>
+    <g data-p="head">
+      ${pix(CAT.head, 18, 10)}
+      <g data-p="blush">${pix(CAT.blush, 19, 16)}${pix(CAT.blush, 27, 16)}</g>
+      <g data-p="eyes">
+        <g data-p="eyeL">${pix(CAT.eye, 20, 14)}</g>
+        <g data-p="eyeR">${pix(CAT.eye, 25, 14)}</g>
+      </g>
+      <g data-p="eyesClosed" style="display:none">${pix(CAT.eyeClosed, 20, 15)}${pix(CAT.eyeClosed, 25, 15)}</g>
+      <g data-p="eyesHappy" style="display:none">${pix(CAT.happy, 19, 14)}${pix(CAT.happy, 24, 14)}</g>
+      <g data-p="mouth">${pix(CAT.mouth, 21, 17)}</g>
+      <g data-p="mouthOpen" style="display:none">${pix(CAT.mouthOpen, 21, 17)}</g>
+    </g>
+  </g>`;
 }
 
-// ---------------------------------------------------------------- cyber dog
+// ---------------------------------------------------------------- geometric flat Shiba
 
-const CY = '#00f0ff';
-const MG = '#ff2bd6';
-const DK = '#1b1b33';
+const SH = {
+  coat: '#e07a5f', // terracotta
+  coatDark: '#c5654b',
+  cream: '#f4f1de',
+  ink: '#2f3150',
+  sun: '#f2cc8f', // mustard
+  sage: '#81b29a',
+};
 
 function dogSVG(): string {
   return `
-  <defs>
-    <filter id="neon-glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="1.4" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <clipPath id="visor-clip"><rect x="36" y="38" width="48" height="16" rx="8"/></clipPath>
-  </defs>
-  <ellipse data-p="shadow" cx="60" cy="113" rx="30" ry="4.5" fill="${CY}" opacity=".22"/>
+  <ellipse data-p="shadow" cx="60" cy="113" rx="24" ry="3.5" fill="${SH.ink}" opacity=".14"/>
   <g data-p="root">
+    <circle data-p="backdrop" cx="60" cy="58" r="40" fill="${SH.sun}" opacity=".55"/>
     <g data-p="tail">
-      <path d="M84 96 L94 88 L98 76" fill="none" stroke="#2a2a4a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M84 96 L94 88 L98 76" fill="none" stroke="${CY}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#neon-glow)"/>
-      <circle data-p="led" cx="98" cy="74" r="3.6" fill="${MG}" filter="url(#neon-glow)"/>
+      <path d="M78 98 C 96 98, 100 78, 88 74 C 80 72, 78 82, 86 84" fill="none" stroke="${SH.coat}" stroke-width="9" stroke-linecap="round"/>
+      <path d="M88 74 C 82 73, 79 79, 84 83" fill="none" stroke="${SH.cream}" stroke-width="4" stroke-linecap="round"/>
     </g>
     <g data-p="body">
-      <path d="M36 96 Q34 74 60 72 Q86 74 84 96 Q84 110 60 110 Q36 110 36 96 Z" fill="${DK}" stroke="${CY}" stroke-width="2" filter="url(#neon-glow)"/>
-      <path d="M42 90 L49 90 M71 90 L78 90 M44 98 L50 98 M70 98 L76 98" stroke="${CY}" stroke-width="1.4" stroke-linecap="round" opacity=".7"/>
-      <g data-p="neon">
-        <polygon points="60,85 66,88.5 66,95.5 60,99 54,95.5 54,88.5" fill="none" stroke="${MG}" stroke-width="1.8" filter="url(#neon-glow)"/>
-        <circle cx="60" cy="92" r="2.2" fill="${MG}"/>
-      </g>
-      <path d="M41 75 Q60 82 79 75" fill="none" stroke="${MG}" stroke-width="3" stroke-linecap="round"/>
-      <circle data-p="led2" cx="60" cy="79" r="2" fill="${CY}" filter="url(#neon-glow)"/>
+      <path d="M41 112 L45 80 Q47 68 60 68 Q73 68 75 80 L79 112 Z" fill="${SH.coat}"/>
+      <path d="M52 70 L68 70 L64 98 Q60 104 56 98 Z" fill="${SH.cream}"/>
+      <path d="M45.5 78 Q60 86 74.5 78 L75.2 83 Q60 91 44.8 83 Z" fill="${SH.sage}"/>
+      <circle cx="60" cy="88" r="3.2" fill="${SH.sun}"/>
     </g>
-    <g data-p="legL"><rect x="38" y="103" width="18" height="9" rx="3.5" fill="#24244a" stroke="${CY}" stroke-width="1.6"/><path d="M42 108 L52 108" stroke="${MG}" stroke-width="1.6" stroke-linecap="round"/></g>
-    <g data-p="legR"><rect x="64" y="103" width="18" height="9" rx="3.5" fill="#24244a" stroke="${CY}" stroke-width="1.6"/><path d="M68 108 L78 108" stroke="${MG}" stroke-width="1.6" stroke-linecap="round"/></g>
+    <g data-p="legL"><rect x="47.5" y="96" width="9" height="16" rx="4.5" fill="${SH.cream}"/></g>
+    <g data-p="legR"><rect x="63.5" y="96" width="9" height="16" rx="4.5" fill="${SH.cream}"/></g>
     <g data-p="head">
-      <g data-p="earL"><polygon points="33,45 15,15 51,31" fill="${DK}" stroke="${CY}" stroke-width="2" stroke-linejoin="round" filter="url(#neon-glow)"/><polygon points="34,38 22,22 45,31" fill="${MG}" opacity=".85"/></g>
-      <g data-p="earR"><polygon points="87,45 105,15 69,31" fill="${DK}" stroke="${CY}" stroke-width="2" stroke-linejoin="round" filter="url(#neon-glow)"/><polygon points="86,38 98,22 75,31" fill="${MG}" opacity=".85"/></g>
-      <path d="M30 47 Q30 22 60 22 Q90 22 90 47 Q90 70 60 72 Q30 70 30 47 Z" fill="${DK}" stroke="${CY}" stroke-width="2.2" filter="url(#neon-glow)"/>
-      <path data-p="circuit" d="M60 24 L60 31 L54 35 M60 31 L66 35 M54 35 L50 35 M66 35 L70 35" fill="none" stroke="${MG}" stroke-width="1.4" stroke-linecap="round"/>
-      <rect x="36" y="38" width="48" height="16" rx="8" fill="#07070f" stroke="${MG}" stroke-width="1.8" filter="url(#neon-glow)"/>
-      <g clip-path="url(#visor-clip)">
-        <g data-p="eyes">
-          <g data-p="eyeL"><rect x="43" y="42" width="9" height="8" rx="2.5" fill="${CY}" filter="url(#neon-glow)"/></g>
-          <g data-p="eyeR"><rect x="68" y="42" width="9" height="8" rx="2.5" fill="${CY}" filter="url(#neon-glow)"/></g>
-        </g>
-        <g data-p="eyesHappy" style="display:none"><path d="M43 50 L47.5 43.5 L52 50 M68 50 L72.5 43.5 L77 50" fill="none" stroke="${CY}" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#neon-glow)"/></g>
-        <rect data-p="scan" x="36" y="38" width="48" height="1.6" fill="${CY}" opacity=".4"/>
+      <g data-p="earL"><path d="M36 36 L41 9 L56 27 Z" fill="${SH.coat}"/><path d="M41 31 L43 17 L51 27 Z" fill="${SH.ink}"/></g>
+      <g data-p="earR"><path d="M84 36 L79 9 L64 27 Z" fill="${SH.coat}"/><path d="M79 31 L77 17 L69 27 Z" fill="${SH.ink}"/></g>
+      <path d="M34 44 Q34 22 60 22 Q86 22 86 44 Q86 61 60 68 Q34 61 34 44 Z" fill="${SH.coat}"/>
+      <path d="M41 49 Q50 44 60 50 Q70 44 79 49 Q77 63 60 68 Q43 63 41 49 Z" fill="${SH.cream}"/>
+      <circle cx="49" cy="36.5" r="2.4" fill="${SH.cream}"/>
+      <circle cx="71" cy="36.5" r="2.4" fill="${SH.cream}"/>
+      <g data-p="eyes">
+        <g data-p="eyeL"><ellipse cx="50.5" cy="44" rx="2.8" ry="3.4" fill="${SH.ink}"/></g>
+        <g data-p="eyeR"><ellipse cx="69.5" cy="44" rx="2.8" ry="3.4" fill="${SH.ink}"/></g>
       </g>
-      <g data-p="blush"><rect x="34" y="59" width="7" height="2.2" rx="1" fill="${MG}"/><rect x="79" y="59" width="7" height="2.2" rx="1" fill="${MG}"/></g>
-      <path d="M49 58 Q60 54 71 58 Q71 69 60 69 Q49 69 49 58 Z" fill="#2a2a50" stroke="${CY}" stroke-width="1.4"/>
-      <rect x="55.5" y="57" width="9" height="4.6" rx="2.2" fill="${MG}" filter="url(#neon-glow)"/>
-      <g data-p="mouth"><path d="M55 64.5 Q60 67.5 65 64.5" fill="none" stroke="${CY}" stroke-width="1.6" stroke-linecap="round"/></g>
-      <g data-p="mouthOpen" style="display:none"><path d="M54 63.5 Q60 73 66 63.5 Z" fill="${MG}" stroke="${CY}" stroke-width="1.4" stroke-linejoin="round"/></g>
+      <g data-p="eyesHappy" style="display:none"><path d="M47 45 Q50.5 40.5 54 45 M66 45 Q69.5 40.5 73 45" fill="none" stroke="${SH.ink}" stroke-width="2.4" stroke-linecap="round"/></g>
+      <path d="M56 53 L64 53 L60 57.5 Z" fill="${SH.ink}" stroke="${SH.ink}" stroke-width="1.6" stroke-linejoin="round"/>
+      <g data-p="mouth"><path d="M60 57.5 L60 60 M56 61 Q58 62.5 60 60 Q62 62.5 64 61" fill="none" stroke="${SH.ink}" stroke-width="1.6" stroke-linecap="round"/></g>
+      <g data-p="mouthOpen" style="display:none"><path d="M60 57.5 L60 59.5 M55.5 60 Q60 62 64.5 60 Q63 68 60 68 Q57 68 55.5 60 Z" fill="${SH.coatDark}" stroke="${SH.ink}" stroke-width="1.6" stroke-linejoin="round"/></g>
     </g>
   </g>`;
 }
 
 // ---------------------------------------------------------------- power fighter (original design)
 
-const SKIN = '#ffd9b5';
-const LINE = '#1e1a2b';
-const GOLD = '#ffd23f';
+const F = {
+  ink: '#16182b',
+  suit: '#1f2547',
+  suitLight: '#2f3a72',
+  skin: '#f0c9a5',
+  cloth: '#f1ede4',
+  gold: '#f5c542',
+  goldDeep: '#d99a1e',
+  aura: '#ffe08a',
+};
 
 function fighterSVG(): string {
-  const arm = (d: string, fist: Pt, band: string) => `
-    <path d="${d}" stroke="${LINE}" stroke-width="10.5" fill="none" stroke-linecap="round"/>
-    <path d="${d}" stroke="${SKIN}" stroke-width="6.5" fill="none" stroke-linecap="round"/>
-    <path d="${band}" stroke="#e0353b" stroke-width="5" stroke-linecap="round"/>
-    <circle cx="${fist[0]}" cy="${fist[1]}" r="4.8" fill="${SKIN}" stroke="${LINE}" stroke-width="2"/>`;
-  const spark = (d: string) =>
-    `<path d="${d}" fill="none" stroke="#fff6a8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" filter="url(#aura-glow)"/>`;
+  const arm = (d: string, hand: Pt) => `
+    <path d="${d}" stroke="${F.suit}" stroke-width="9" fill="none" stroke-linecap="round"/>
+    <circle cx="${hand[0]}" cy="${hand[1]}" r="4.2" fill="${F.skin}"/>`;
+  const spark = (x: number, y: number, s: number) =>
+    `<path d="M${x} ${y - s} L${x + s * 0.45} ${y} L${x} ${y + s} L${x - s * 0.45} ${y} Z" fill="${F.gold}"/>`;
+  const lines = [22, 34, 86, 98].map((x, i) =>
+    `<rect x="${x}" y="${30 + (i % 2) * 22}" width="1.6" height="${22 - (i % 2) * 6}" rx=".8" fill="${F.gold}"/>`).join('');
   return `
   <defs>
-    <filter id="aura-glow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur stdDeviation="2.2" result="b"/>
+    <filter id="power-glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2" result="b"/>
       <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
     </filter>
-    <linearGradient id="aura-grad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff7c2" stop-opacity=".4"/>
-      <stop offset=".55" stop-color="${GOLD}" stop-opacity=".75"/>
-      <stop offset="1" stop-color="#ff9d00" stop-opacity=".9"/>
-    </linearGradient>
+    <radialGradient id="power-disc" cx=".5" cy=".55" r=".5">
+      <stop offset="0" stop-color="${F.aura}" stop-opacity=".85"/>
+      <stop offset=".6" stop-color="${F.gold}" stop-opacity=".35"/>
+      <stop offset="1" stop-color="${F.gold}" stop-opacity="0"/>
+    </radialGradient>
   </defs>
-  <ellipse data-p="shadow" cx="60" cy="113" rx="26" ry="5" fill="#000" opacity=".16"/>
+  <ellipse data-p="shadow" cx="60" cy="113" rx="20" ry="3.5" fill="${F.ink}" opacity=".18"/>
   <g data-p="root">
     <g data-p="aura" opacity="0">
-      <path d="M60 2 C 70 20, 90 16, 94 42 C 106 58, 100 86, 94 111 L26 111 C 20 86, 14 58, 26 42 C 30 16, 50 20, 60 2 Z" fill="url(#aura-grad)" filter="url(#aura-glow)"/>
+      <circle cx="60" cy="62" r="52" fill="url(#power-disc)"/>
+      <circle cx="60" cy="62" r="44" fill="none" stroke="${F.gold}" stroke-width="1.4" stroke-dasharray="3 6"/>
     </g>
-    <g data-p="aura2" opacity="0">
-      <path d="M60 14 C 68 28, 82 26, 85 46 C 94 62, 88 88, 84 110 L36 110 C 32 88, 26 62, 35 46 C 38 26, 52 28, 60 14 Z" fill="#fff3a6" opacity=".45" filter="url(#aura-glow)"/>
-    </g>
-    <g data-p="legL"><path d="M42 110 Q42 103 50 103 Q58 103 58 110 Z" fill="#1d2233" stroke="${LINE}" stroke-width="2"/><rect x="43" y="104" width="14" height="2.6" fill="#e0353b"/></g>
-    <g data-p="legR"><path d="M62 110 Q62 103 70 103 Q78 103 78 110 Z" fill="#1d2233" stroke="${LINE}" stroke-width="2"/><rect x="63" y="104" width="14" height="2.6" fill="#e0353b"/></g>
-    <g data-p="armL">${arm('M43 82 Q32 91 36 101', [36, 103], 'M33.5 97.5 L39 98.6')}</g>
-    <g data-p="armR">${arm('M77 82 Q88 91 84 101', [84, 103], 'M86.5 97.5 L81 98.6')}</g>
+    <g data-p="ring" opacity="0"><polygon points="60,20 96.4,41 96.4,83 60,104 23.6,83 23.6,41" fill="none" stroke="${F.gold}" stroke-width="1.8" filter="url(#power-glow)"/></g>
+    <g data-p="aura2" opacity="0">${lines}</g>
+    <g data-p="tail"><path d="M72 58 C 84 55, 92 62, 104 56 L102 63 C 92 68, 83 62, 72 63.5 Z" fill="${F.cloth}"/></g>
+    <g data-p="legL"><path d="M47 92 L45 107 L56 107 L58 92 Z" fill="${F.suit}"/><rect x="43" y="106" width="14" height="6" rx="2" fill="${F.ink}"/></g>
+    <g data-p="legR"><path d="M73 92 L75 107 L64 107 L62 92 Z" fill="${F.suit}"/><rect x="63" y="106" width="14" height="6" rx="2" fill="${F.ink}"/></g>
+    <g data-p="armL">${arm('M46 62 Q38 76 40 88', [40, 90])}</g>
+    <g data-p="armR">${arm('M74 62 Q82 76 80 88', [80, 90])}</g>
     <g data-p="body">
-      <path d="M40 108 Q37 84 49 76 L71 76 Q83 84 80 108 Z" fill="#233a6b" stroke="${LINE}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M51 76 L60 89 L69 76 Z" fill="#11131c"/>
-      <rect x="40.5" y="96" width="39" height="5.5" fill="#efe9da" stroke="${LINE}" stroke-width="1.6"/>
-      <rect x="56" y="95" width="8" height="7.5" rx="1.5" fill="#efe9da" stroke="${LINE}" stroke-width="1.6"/>
-      <path d="M71 81 L67 87 L70 87 L68 92 L73.5 85 L70.5 85 Z" fill="${GOLD}" stroke="${LINE}" stroke-width="1"/>
+      <path d="M44 59 Q60 52 76 59 L78 96 L42 96 Z" fill="${F.suit}"/>
+      <path d="M53 56 L60 72 L67 56 Z" fill="${F.suitLight}"/>
+      <path d="M42.6 86 L77.4 86" stroke="${F.gold}" stroke-width="2.4"/>
+      <path d="M46 56 Q60 63 74 56 L74.5 61 Q60 68 45.5 61 Z" fill="${F.cloth}"/>
     </g>
     <g data-p="head">
-      <circle cx="35" cy="52" r="4.5" fill="${SKIN}" stroke="${LINE}" stroke-width="2"/>
-      <circle cx="85" cy="52" r="4.5" fill="${SKIN}" stroke="${LINE}" stroke-width="2"/>
-      <ellipse cx="60" cy="50" rx="25" ry="25" fill="${SKIN}" stroke="${LINE}" stroke-width="2.5"/>
-      <g data-unpower><path d="M33 52 L27 36 L38 40 L35 21 L48 32 L52 11 L60 28 L68 11 L72 32 L85 21 L82 40 L93 36 L87 52 Q84 38 72 36 L66 42 L60 34 L54 42 L48 36 Q36 38 33 52 Z" fill="#221c2c" stroke="${LINE}" stroke-width="2" stroke-linejoin="round"/></g>
-      <g data-power opacity="0"><path d="M33 52 L22 31 L37 37 L31 10 L47 27 L52 0 L60 23 L68 0 L73 27 L89 10 L83 37 L98 31 L87 52 Q84 38 72 36 L66 42 L60 34 L54 42 L48 36 Q36 38 33 52 Z" fill="${GOLD}" stroke="#c58a00" stroke-width="2" stroke-linejoin="round" filter="url(#aura-glow)"/></g>
-      <path d="M43.5 43 L55 46 M76.5 43 L65 46" stroke="${LINE}" stroke-width="2.8" stroke-linecap="round"/>
-      <g data-p="blush"><ellipse cx="43" cy="60" rx="5" ry="2.8" fill="#ff9aa8"/><ellipse cx="77" cy="60" rx="5" ry="2.8" fill="#ff9aa8"/></g>
+      <rect x="56" y="45" width="8" height="10" fill="${F.skin}"/>
+      <circle cx="45.5" cy="36" r="2.6" fill="${F.skin}"/>
+      <circle cx="74.5" cy="36" r="2.6" fill="${F.skin}"/>
+      <path d="M45 33 Q45 19 60 19 Q75 19 75 33 Q75 45 60 51 Q45 45 45 33 Z" fill="${F.skin}"/>
+      <g data-unpower><path d="M43 35 L40 21 L47 23 L46 11 L54 17 L58 5 L63 16 L71 9 L71 19 L79 17 L76 29 L77 35 Q73 25 63 24 L58 28 L52 24 Q46 27 43 35 Z" fill="${F.ink}"/></g>
+      <g data-power opacity="0"><path d="M43 35 L35 17 L46 20 L41 2 L53 14 L58 -6 L64 12 L75 0 L72 16 L84 12 L77 29 L77 35 Q73 25 63 24 L58 28 L52 24 Q46 27 43 35 Z" fill="${F.gold}" stroke="${F.goldDeep}" stroke-width="1.2" stroke-linejoin="round" filter="url(#power-glow)"/></g>
+      <path d="M45.2 29.5 Q60 25.5 74.8 29.5 L74.9 32.6 Q60 28.6 45.1 32.6 Z" fill="${F.cloth}"/>
+      <path d="M49 33.4 L56 35 M71 33.4 L64 35" stroke="${F.ink}" stroke-width="1.8" stroke-linecap="round"/>
       <g data-p="eyes">
-        <g data-p="eyeL"><ellipse cx="50" cy="51" rx="3.8" ry="4.8" fill="${LINE}"/><ellipse data-power opacity="0" cx="50" cy="51.4" rx="2.4" ry="3.2" fill="#2ee6c5"/><circle cx="51.3" cy="49.2" r="1.3" fill="#fff"/></g>
-        <g data-p="eyeR"><ellipse cx="70" cy="51" rx="3.8" ry="4.8" fill="${LINE}"/><ellipse data-power opacity="0" cx="70" cy="51.4" rx="2.4" ry="3.2" fill="#2ee6c5"/><circle cx="71.3" cy="49.2" r="1.3" fill="#fff"/></g>
+        <g data-p="eyeL"><path d="M50 37 L56.2 36.6 L55.2 39.4 L51 39.2 Z" fill="${F.ink}"/><path data-power opacity="0" d="M51.6 37.2 L54.8 37 L54.3 38.9 L52.1 38.8 Z" fill="#3ff0d0"/></g>
+        <g data-p="eyeR"><path d="M70 37 L63.8 36.6 L64.8 39.4 L69 39.2 Z" fill="${F.ink}"/><path data-power opacity="0" d="M68.4 37.2 L65.2 37 L65.7 38.9 L67.9 38.8 Z" fill="#3ff0d0"/></g>
       </g>
-      <g data-p="eyesHappy" style="display:none"><path d="M45.5 52.5 Q50 46 54.5 52.5 M65.5 52.5 Q70 46 74.5 52.5" stroke="${LINE}" stroke-width="2.6" fill="none" stroke-linecap="round"/></g>
-      <g data-p="mouth"><path d="M55.5 62 Q60 65 64.5 62" stroke="${LINE}" stroke-width="2" fill="none" stroke-linecap="round"/></g>
-      <g data-p="mouthOpen" style="display:none"><path d="M54.5 60.5 Q60 71 65.5 60.5 Z" fill="#c2414b" stroke="${LINE}" stroke-width="2" stroke-linejoin="round"/></g>
+      <g data-p="eyesHappy" style="display:none"><path d="M50 39 Q53 35.6 56 39 M64 39 Q67 35.6 70 39" fill="none" stroke="${F.ink}" stroke-width="1.8" stroke-linecap="round"/></g>
+      <g data-p="mouth"><path d="M57 45 L63 45" stroke="${F.ink}" stroke-width="1.6" stroke-linecap="round"/></g>
+      <g data-p="mouthOpen" style="display:none"><path d="M56.5 43.8 L63.5 43.8 L62.2 47.6 L57.8 47.6 Z" fill="${F.ink}"/></g>
     </g>
-    <g data-p="sparks" opacity="0">
-      ${spark('M18 40 L24 46 L19 50 L26 58')}
-      ${spark('M101 34 L95 42 L101 45 L94 54')}
-      ${spark('M22 82 L28 86 L23 92')}
-      ${spark('M98 78 L92 84 L98 89')}
+    <g data-p="sparks" opacity="0" filter="url(#power-glow)">
+      ${spark(20, 44, 5)}${spark(101, 36, 4)}${spark(24, 86, 3.5)}${spark(97, 80, 5)}
     </g>
   </g>`;
 }
