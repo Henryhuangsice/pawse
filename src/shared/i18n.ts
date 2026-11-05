@@ -3,12 +3,12 @@ import type { Lang, PetKind } from './config';
 export type Locale = 'zh' | 'en';
 
 const zh = {
-  'kind.cat': '猫咪',
-  'kind.dog': '小狗',
-  'kind.human': '小人',
-  'name.cat': '年糕',
-  'name.dog': '豆包',
-  'name.human': '小打工',
+  'kind.cat': '像素猫',
+  'kind.dog': '赛博狗',
+  'kind.human': '战士',
+  'name.cat': '比特',
+  'name.dog': '霓虹',
+  'name.human': '阿燃',
 
   'menu.pet': '摸摸头',
   'menu.sleep': '去睡一会儿',
@@ -47,12 +47,12 @@ const zh = {
 type Key = keyof typeof zh;
 
 const en: Record<Key, string> = {
-  'kind.cat': 'Cat',
-  'kind.dog': 'Dog',
-  'kind.human': 'Buddy',
-  'name.cat': 'Mochi',
-  'name.dog': 'Biscuit',
-  'name.human': 'Sam',
+  'kind.cat': 'Pixel Cat',
+  'kind.dog': 'Cyber Dog',
+  'kind.human': 'Fighter',
+  'name.cat': 'Bit',
+  'name.dog': 'Neon',
+  'name.human': 'Blaze',
 
   'menu.pet': 'Pat head',
   'menu.sleep': 'Take a nap',
@@ -88,36 +88,38 @@ const en: Record<Key, string> = {
   'settings.nextDesc': 'Work-hours companion · water/stand/rest reminders · quick launcher · custom looks · AI chat · after-work picks',
 };
 
-type LineCat = 'greet' | 'click' | 'annoyed' | 'petting' | 'wake' | 'sleep' | 'dropped' | 'switch';
+type LineCat = 'greet' | 'click' | 'annoyed' | 'petting' | 'wake' | 'sleep' | 'dropped' | 'switch' | 'power';
 
 const LINES: Record<Locale, Record<LineCat, Partial<Record<PetKind | 'any', string[]>>>> = {
   zh: {
     greet: { any: ['我来陪你上班啦~', '今天也一起加油吧！', '嗨，{name}在这儿哦'] },
     click: {
-      cat: ['喵~', '喵呜？', '干嘛戳我~', '呼噜呼噜…'],
-      dog: ['汪！', '汪汪~', '要一起玩吗？', '尾巴停不下来！'],
-      human: ['嘿！', '在呢在呢~', '摸鱼被我发现了？', '你今天也很棒！'],
+      cat: ['喵~ (8-bit)', '喵呜？', '叮！获得 1 点好感', '呼噜呼噜…'],
+      dog: ['汪！系统在线', '检测到主人 ✓', '汪汪~ 信号满格', '尾巴电机过热中！'],
+      human: ['哈！', '修炼一下吗？', '摸鱼被我发现了？', '你今天也很强！'],
     },
     annoyed: { any: ['别戳啦！', '再戳要生气了 ˋ^ˊ', '晕了晕了…'] },
     petting: { any: ['好舒服~', '再摸摸~', '♥ ♥ ♥'] },
-    wake: { cat: ['唔…刚梦到小鱼干', '啊！我没睡！'], dog: ['汪？到点吃饭了吗', '我醒啦！'], human: ['我只是闭目养神…', '啊，开会了吗？'] },
+    wake: { cat: ['唔…刚梦到像素小鱼干', '啊！我没睡！'], dog: ['系统重启完成', '低功耗模式已退出'], human: ['我只是在冥想…', '啊，开会了吗？'] },
     sleep: { any: ['好困…睡一小会儿', 'Zzz…'] },
     dropped: { any: ['哇——', '轻点放嘛~', '着陆成功！'] },
     switch: { any: ['变身！', '新造型怎么样？'] },
+    power: { any: ['力量全开！！', '感受到了吗，这股气！', '今天的我，状态拉满！'] },
   },
   en: {
     greet: { any: ["I'm here for your workday!", "Let's do great today!", 'Hi, {name} is here'] },
     click: {
-      cat: ['Meow~', 'Mrrp?', 'Why poke me~', 'Purr purr…'],
-      dog: ['Woof!', 'Arf arf~', 'Wanna play?', "Can't stop wagging!"],
-      human: ['Hey!', "I'm here~", 'Caught you slacking?', "You're doing great!"],
+      cat: ['Meow~ (8-bit)', 'Mrrp?', 'Ding! +1 affection', 'Purr purr…'],
+      dog: ['Woof! System online', 'Owner detected ✓', 'Arf~ full signal', 'Tail motor overheating!'],
+      human: ['Hah!', 'Training time?', 'Caught you slacking?', "You're unstoppable today!"],
     },
     annoyed: { any: ['Stop poking!', "I'm getting grumpy ˋ^ˊ", 'So dizzy…'] },
     petting: { any: ['That feels nice~', 'More pats~', '♥ ♥ ♥'] },
-    wake: { cat: ['Mm… dreamt of fish', "I wasn't asleep!"], dog: ['Is it dinner time?', "I'm up!"], human: ['Just resting my eyes…', 'Is the meeting starting?'] },
+    wake: { cat: ['Mm… dreamt of pixel fish', "I wasn't asleep!"], dog: ['Reboot complete', 'Exiting low-power mode'], human: ['Just meditating…', 'Is the meeting starting?'] },
     sleep: { any: ['So sleepy… quick nap', 'Zzz…'] },
     dropped: { any: ['Whoa—', 'Gently please~', 'Touchdown!'] },
     switch: { any: ['Ta-da!', 'How do I look?'] },
+    power: { any: ['FULL POWER!!', 'Feel that energy?', "I'm fully charged today!"] },
   },
 };
 
