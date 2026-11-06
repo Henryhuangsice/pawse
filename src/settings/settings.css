@@ -191,3 +191,5 @@ input.hue::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height:
 button.mini.danger { color: #e5484d; }
 #chatSection .row input:not([type]) , #chatSection .row input[type=password] { flex: 1; min-width: 0; }
 .proactive-row { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px; font-size: 13px; }
+#eveCity { flex: 1; min-width: 0; }
+.row button.mini { flex: none; }

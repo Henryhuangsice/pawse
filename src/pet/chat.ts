@@ -52,6 +52,8 @@ export interface ChatHost {
   say(text: string, ms?: number): void;
   ask(text: string, actions: { label: string; primary?: boolean; run: () => void }[], onTimeout: () => void, ms?: number): void;
   wake(): void;
+  /** show the “tonight” card (M5); false when that feature is off */
+  openEvening(): boolean;
 }
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -438,6 +440,11 @@ export class Chat {
         this.saveTimers();
         return n ? t('chat.timersCancelled', { n: String(n) }) : t('chat.noTimers');
       }
+      case 'evening':
+        // let this reply land in the log, then swap the chat box for the card
+        if (!this.host.cfg.evening.enabled) return t('chat.eveningOff');
+        setTimeout(() => this.host.openEvening(), 700);
+        return t('chat.eveningReply');
     }
   }
 

@@ -20,6 +20,7 @@ mod genai;
 mod memory;
 mod system;
 mod tts;
+mod weather;
 
 use std::{fs, path::PathBuf, sync::Mutex, thread, time::Duration};
 
@@ -272,6 +273,11 @@ async fn chat_send(app: AppHandle, req: chat::ChatRequest) -> Result<chat::ChatR
 }
 
 #[tauri::command]
+async fn weather_now(city: String, lang: String) -> Result<weather::Weather, String> {
+    weather::now(&city, &lang).await
+}
+
+#[tauri::command]
 fn tts_speak(text: String, lang: String) -> Result<(), String> {
     tts::speak(&text, &lang)
 }
@@ -464,6 +470,7 @@ pub fn run() {
             chat_send,
             chat_cancel,
             tts_speak,
+            weather_now,
             tts_stop,
             chat_log,
             chat_recent,

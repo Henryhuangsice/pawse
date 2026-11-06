@@ -7,7 +7,8 @@
 export type Intent =
   | { type: 'open'; name: string }
   | { type: 'timer'; minutes: number; note: string }
-  | { type: 'cancelTimers' };
+  | { type: 'cancelTimers' }
+  | { type: 'evening' };
 
 const DIGIT: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
 
@@ -67,6 +68,9 @@ export function parseIntent(input: string): Intent | null {
 
   if (/(取消|删掉|删除|关掉|不用).{0,6}(提醒|闹钟|计时)|^cancel\b.*\b(reminders?|timers?|alarms?)\b/i.test(s)) {
     return { type: 'cancelTimers' };
+  }
+  if (/(下班|今晚|晚上|一会儿?下班).{0,4}(去哪|干嘛|干什么|做什么|玩什么|吃什么|去哪儿|有什么安排)|^(what|where).{0,30}\b(tonight|after work|this evening)\b/i.test(s)) {
+    return { type: 'evening' };
   }
   const timer = zhTimer(s) ?? enTimer(s);
   if (timer) return timer;

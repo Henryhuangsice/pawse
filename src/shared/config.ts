@@ -33,6 +33,9 @@ export const CHAT_KEY_SLOT: Record<ChatProvider, string | null> = {
   openai: 'openai',
   custom: 'custom',
 };
+/** after-work idea categories (M5) */
+export type EveningCat = 'eat' | 'drink' | 'move' | 'show' | 'stroll' | 'home';
+const EVENING_CATS: EveningCat[] = ['eat', 'drink', 'move', 'show', 'stroll', 'home'];
 export const OLLAMA_URL = 'http://localhost:11434/v1';
 /** Global shortcut that opens the chat box (registered in src-tauri/src/lib.rs). */
 export const CHAT_KEY = navigator.platform.startsWith('Mac') ? '⌃⌥C' : 'Ctrl+Alt+C';
@@ -139,6 +142,18 @@ export interface AppConfig {
     /** read replies aloud with the system voice (free, offline) */
     speak: boolean;
   };
+  /** “下班去哪儿” (M5): weather from Open-Meteo, places via map / ticket site searches */
+  evening: {
+    enabled: boolean;
+    /** typed by the user, never located automatically; empty = no weather, maps search near you */
+    city: string;
+    /** which sites the links open: auto = by the city's country, else by language */
+    market: 'auto' | 'cn' | 'intl';
+    /** empty = anything */
+    likes: EveningCat[];
+    /** at clock-out, ask whether to see tonight's ideas */
+    offerAtClockOut: boolean;
+  };
 }
 
 export const ROAM_PRESETS: Record<'bottomRight' | 'bottomBand' | 'rightColumn' | 'full', Rect01> = {
@@ -180,6 +195,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     proactivePerDay: 0,
     speak: false,
   },
+  evening: { enabled: true, city: '', market: 'auto', likes: [], offerAtClockOut: true },
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -241,6 +257,7 @@ export function normalizeConfig(raw: unknown): AppConfig {
       openai: { model: modelName(obj(obj(r.ai).openai).model) },
     },
     chat: normalizeChat(obj(r.chat)),
+    evening: normalizeEvening(obj(r.evening)),
   };
 }
 
@@ -248,6 +265,16 @@ const modelName = (v: unknown) => (typeof v === 'string' && /^[\w.:/-]{0,80}$/.t
 const httpUrl = (v: unknown, fallback: string) =>
   typeof v === 'string' && /^https?:\/\/[^\s]{1,300}$/.test(v.trim()) ? v.trim().replace(/\/+$/, '') : fallback;
 const text = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+function normalizeEvening(e: Record<string, any>): AppConfig['evening'] {
+  return {
+    enabled: bool(e.enabled, true),
+    city: typeof e.city === 'string' ? e.city.trim().slice(0, 60) : '',
+    market: e.market === 'cn' || e.market === 'intl' ? e.market : 'auto',
+    likes: Array.isArray(e.likes) ? EVENING_CATS.filter((c) => e.likes.includes(c)) : [],
+    offerAtClockOut: bool(e.offerAtClockOut, true),
+  };
+}
 
 function normalizeChat(c: Record<string, any>): AppConfig['chat'] {
   const models = obj(c.models);

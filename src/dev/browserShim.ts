@@ -149,6 +149,18 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
       // no `say` in the browser: the frontend falls back to speechSynthesis
       case 'tts_speak': (window as any).__shimSpoken = args.text; throw new Error('unsupported');
       case 'tts_stop': return null;
+      // window.__shimWeather can override; default: mild and dry, or "notfound" for "nowhere"
+      case 'weather_now': {
+        await new Promise((r) => setTimeout(r, 300));
+        const hook = (window as any).__shimWeather;
+        if (hook) return hook(args);
+        if (/nowhere|不存在/.test(args.city)) throw 'notfound';
+        const cn = /[\u4e00-\u9fff]/.test(args.city);
+        return {
+          place: { name: args.city.replace(/市$/, ''), country: cn ? '中国' : 'United Kingdom', country_code: cn ? 'CN' : 'GB', lat: 31.2, lon: 121.4 },
+          temp: 19, feels: 18, code: 3, rain_chance: 10, precipitation: 0, wind: 8, is_day: false,
+        };
+      }
       case 'chat_log': {
         const log = chatLog();
         const id = (log[log.length - 1]?.id ?? 0) + 1;

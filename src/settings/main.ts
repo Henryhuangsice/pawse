@@ -5,11 +5,12 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   loadConfig, onConfigChange, saveConfig, ACCESSORIES, AI_PROVIDERS, CHAT_DEFAULT_MODEL, CHAT_KEY, CHAT_KEY_SLOT, CHAT_PROVIDERS,
   LAUNCHER_KEY, PET_KINDS, REMINDER_KINDS, ROAM_PRESETS,
-  type Accessory, type AiProvider, type AppConfig, type ChatProvider, type CustomPetMeta, type Lang, type PetKind, type Rect01,
+  type Accessory, type AiProvider, type AppConfig, type ChatProvider, type CustomPetMeta, type EveningCat, type Lang, type PetKind, type Rect01,
 } from '../shared/config';
 import { chatRequest, explainError, visible } from '../pet/chat';
 import { listen } from '@tauri-apps/api/event';
-import { setLang, t } from '../shared/i18n';
+import { locale, setLang, t } from '../shared/i18n';
+import { wmoText } from '../pet/evening';
 import { Animator } from '../pet/animator';
 import { petSVG } from '../pet/art';
 import { openCreator } from './creator';
@@ -105,6 +106,7 @@ function render() {
     ${workSection()}
     ${remindersSection()}
     ${launcherSection()}
+    ${eveningSection()}
 
     <section>
       <h2>${t('settings.general')}</h2>
@@ -177,6 +179,59 @@ function aiSection() {
       <label class="row"><span>${t('settings.aiModel')}</span>
         <input id="aiModel" maxlength="64" value="${escapeAttr(p === 'dashscope' ? ai.dashscope.model : ai.openai.model)}" placeholder="${escapeAttr(t('settings.aiModelPh', { model: def }))}"/></label>
     </section>`;
+}
+
+const EVE_CATS: EveningCat[] = ['eat', 'drink', 'move', 'show', 'stroll', 'home'];
+
+function eveningSection() {
+  const e = cfg.evening;
+  return `
+    <section>
+      <h2>${t('settings.evening')}</h2>
+      <p class="desc">${t('settings.eveningDesc')}</p>
+      ${check('eveOn', e.enabled, t('settings.eveningOn'))}
+      <fieldset ${e.enabled ? '' : 'disabled'}>
+        <div class="row">
+          <span>${t('settings.eveningCity')}</span>
+          <input id="eveCity" maxlength="60" value="${escapeAttr(e.city)}" placeholder="${escapeAttr(t('settings.eveningCityPh'))}"/>
+          <button id="eveCheck" class="mini">${t('settings.eveningCheck')}</button>
+        </div>
+        <label class="row"><span>${t('settings.eveningMarket')}</span>
+          <select id="eveMarket">
+            ${(['auto', 'cn', 'intl'] as const).map((m) => `<option value="${m}" ${e.market === m ? 'selected' : ''}>${t(`settings.eveningMarket${m === 'auto' ? 'Auto' : m === 'cn' ? 'Cn' : 'Intl'}`)}</option>`).join('')}
+          </select></label>
+        <p class="hint">${t('settings.eveningLikes')}</p>
+        <div class="chips">${EVE_CATS.map((c) => `<button data-evecat="${c}" class="${e.likes.includes(c) ? 'on' : ''}">${t(`eveCat.${c}`)}</button>`).join('')}</div>
+        ${check('eveOffer', e.offerAtClockOut, t('settings.eveningOffer'))}
+        <p class="hint">${t('settings.eveningHint')}</p>
+      </fieldset>
+    </section>`;
+}
+
+function bindEvening() {
+  const $in = <T extends HTMLElement = HTMLInputElement>(id: string) => app.querySelector<T>(`#${id}`);
+  const ev = (patch: Partial<AppConfig['evening']>, rerender = false) => update({ evening: { ...cfg.evening, ...patch } }, rerender);
+  $in('eveOn')?.addEventListener('change', (e) => ev({ enabled: (e.target as HTMLInputElement).checked }, true));
+  $in('eveOffer')?.addEventListener('change', (e) => ev({ offerAtClockOut: (e.target as HTMLInputElement).checked }));
+  $in('eveMarket')?.addEventListener('change', (e) => ev({ market: (e.target as HTMLSelectElement).value as AppConfig['evening']['market'] }));
+  const city = $in('eveCity');
+  city?.addEventListener('change', () => ev({ city: city.value.trim() }));
+  app.querySelectorAll<HTMLButtonElement>('[data-evecat]').forEach((b) => b.addEventListener('click', () => {
+    const c = b.dataset.evecat as EveningCat;
+    const likes = cfg.evening.likes.includes(c) ? cfg.evening.likes.filter((x) => x !== c) : [...cfg.evening.likes, c];
+    ev({ likes }, true);
+  }));
+  $in('eveCheck')?.addEventListener('click', async () => {
+    const name = city?.value.trim() ?? '';
+    if (!name) return;
+    ev({ city: name });
+    try {
+      const w = await invoke<{ place: { name: string; country: string }; temp: number; code: number }>('weather_now', { city: name, lang: locale() });
+      flashToast(t('settings.eveningCityOk', { place: `${w.place.name}${w.place.country ? `, ${w.place.country}` : ''} · ${Math.round(w.temp)}°C ${wmoText(w.code, locale() === 'zh')}` }));
+    } catch (e) {
+      flashToast(String(e) === 'notfound' ? t('evening.cityNotFound', { city: name }) : t('evening.noWeather'));
+    }
+  });
 }
 
 function chatSection() {
@@ -531,6 +586,7 @@ function bind() {
   });
   onChange('avoid', (el) => update({ avoidActiveWindow: el.checked }));
   bindChat();
+  bindEvening();
 }
 
 const clampNum = (el: HTMLInputElement, lo: number, hi: number) => {

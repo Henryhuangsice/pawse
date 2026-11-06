@@ -12,6 +12,7 @@ import { CUSTOM_META, customSVG, petSVG } from './art';
 import { loadImage } from '../shared/image';
 import { Companion, type CompanionEvent, type Presence } from './companion';
 import { Chat } from './chat';
+import { Evening } from './evening';
 import { openRoamEditor } from './roamEditor';
 
 const BASE = 120; // pet art size in px at scale 1
@@ -63,6 +64,8 @@ class Pet {
   customs: CustomPetMeta[] = [];
   /** the chat box (M4), created in boot() */
   chat: Chat | null = null;
+  /** the “tonight” card (M5), created in boot() */
+  evening: Evening | null = null;
 
   petEl = $<HTMLDivElement>('#pet');
   artEl = $<HTMLDivElement>('#pet-art');
@@ -158,7 +161,7 @@ class Pet {
 
     switch (this.state) {
       case 'idle':
-        if (!this.hover && !this.menuOpen && !this.chat?.open && this.stateT > this.stateDur && !this.anim.isReacting) this.decide(now);
+        if (!this.hover && !this.menuOpen && !this.chat?.open && !this.evening?.open && this.stateT > this.stateDur && !this.anim.isReacting) this.decide(now);
         break;
       case 'walk':
       case 'return': {
@@ -422,6 +425,17 @@ class Pet {
     for (let i = 0; i < n; i++) setTimeout(() => this.spawnFx('heart', '♥', rand(-30, 10)), i * 140);
   }
 
+  /** the “tonight” card replaces the chat box (one panel at a time) */
+  showEvening(): boolean {
+    if (!this.cfg.evening.enabled || !this.evening) return false;
+    this.chat?.close();
+    this.closeMenu();
+    if (this.state === 'walk' || this.state === 'sleep') this.setState('idle', 3);
+    this.anim.react('hop');
+    void this.evening.show();
+    return true;
+  }
+
   // ---------- menu ----------
   openMenu() {
     const kind = this.customPet ? null : this.cfg.pet.kind;
@@ -429,6 +443,7 @@ class Pet {
     this.menuEl.innerHTML = `
       <div class="menu-title">${escapeHtml(this.name)}</div>
       ${this.cfg.chat.enabled ? `<button data-a="chat">💬 ${t('menu.chat')} <kbd>${CHAT_KEY}</kbd></button>` : ''}
+      ${this.cfg.evening.enabled ? `<button data-a="evening">🌆 ${t('menu.evening')}</button>` : ''}
       <button data-a="pet">🤚 ${t('menu.pet')}</button>
       <button data-a="${sleeping ? 'wake' : 'sleep'}">${sleeping ? '☀️ ' + t('menu.wake') : '💤 ' + t('menu.sleep')}</button>
       <div class="menu-label">${t('menu.switch')}</div>
@@ -521,7 +536,8 @@ class Pet {
       return;
     }
     switch (a) {
-      case 'chat': void this.chat?.show(); break;
+      case 'chat': this.evening?.close(); void this.chat?.show(); break;
+      case 'evening': this.showEvening(); break;
       case 'pet': this.onPetted(now); break;
       case 'sleep': this.setState('sleep', rand(40, 90)); this.say(line('sleep', this.lineKind)); break;
       case 'wake': this.onClick(now); break;
@@ -581,6 +597,8 @@ class Pet {
     if (prev.pet.scale !== next.pet.scale) this.applyScale();
     this.chat?.refresh();
     if (!next.chat.enabled) this.chat?.close();
+    if (!next.evening.enabled) this.evening?.close();
+    else if (this.evening?.open) this.evening.render();
     if (JSON.stringify(prev.roam) !== JSON.stringify(next.roam) && !this.inBounds()) this.walkBack();
   }
 
@@ -604,6 +622,7 @@ class Pet {
       }
     }
     this.chat?.position();
+    this.evening?.position();
     this.syncHitRegions(now);
   }
 
@@ -614,6 +633,7 @@ class Pet {
     if (!this.bubbleEl.classList.contains('hidden')) rects.push(toBox(this.bubbleEl.getBoundingClientRect()));
     if (this.menuOpen) rects.push(toBox(this.menuEl.getBoundingClientRect()));
     if (this.chat?.open) rects.push(toBox(this.chat.el.getBoundingClientRect()));
+    if (this.evening?.open) rects.push(toBox(this.evening.el.getBoundingClientRect()));
     const key = rects.map((r) => `${r.x | 0},${r.y | 0},${r.w | 0},${r.h | 0}`).join(';');
     if (key === this.lastSentHit) return;
     this.lastSentHit = key;
@@ -631,6 +651,25 @@ const launchIcon = (target: string) => (target.includes('://') ? '🌐' : '🚀'
 // ---------------------------------------------------------------- work buddy (M2)
 
 /** Turns companion events into what the pet says and does. */
+/** at clock-out: offer tonight's ideas (M5), or just a relax line when that's off */
+function offerEvening(pet: Pet, kind: LineKind) {
+  const ev = pet.cfg.evening;
+  if (!ev.enabled || !ev.offerAtClockOut || pet.quiet || pet.askTimeout !== null) {
+    pet.say(line('relax', kind), 6000);
+    return;
+  }
+  pet.ask(
+    // no relax line here: “take a walk” would clash with a rainy-evening card
+    t('evening.offer'),
+    [
+      { label: t('evening.offerYes'), primary: true, run: () => pet.showEvening() },
+      { label: t('evening.offerNo'), run: () => { pet.anim.react('wave'); pet.say(t('evening.home'), 4000); } },
+    ],
+    () => {},
+    20_000,
+  );
+}
+
 function handleCompanion(pet: Pet, c: Companion, e: CompanionEvent) {
   const kind = pet.lineKind;
   const vars = { name: pet.name };
@@ -652,7 +691,7 @@ function handleCompanion(pet: Pet, c: Companion, e: CompanionEvent) {
       wakeUp();
       pet.anim.react(cat === 'clockOut' ? 'wave' : 'jump');
       pet.say(line(cat, kind, vars), 5000);
-      if (cat === 'clockOut') setTimeout(() => pet.say(line('relax', kind), 6000), 5600);
+      if (cat === 'clockOut') setTimeout(() => offerEvening(pet, kind), 5600);
       return;
     }
     case 'remind': {
@@ -778,12 +817,22 @@ async function boot() {
     say: (text, ms) => pet.say(text, ms),
     ask: (text, actions, onTimeout, ms) => pet.ask(text, actions, onTimeout, ms),
     wake: () => { if (pet.state === 'sleep') pet.setState('idle', 3); },
+    openEvening: () => pet.showEvening(),
   }, () => (pet.customPet ? (locale() === 'zh' ? '用户自己做的形象' : 'a picture the user made') : t(`kind.${pet.cfg.pet.kind}`)));
+  pet.evening = new Evening({
+    get cfg() { return pet.cfg; },
+    get x() { return pet.x; },
+    get y() { return pet.y; },
+    get size() { return pet.size; },
+    react: (r) => pet.anim.react(r),
+    say: (text, ms) => pet.say(text, ms),
+  });
   await listen('open-chat', () => {
     if (!pet.cfg.chat.enabled) { pet.say(t('chat.off')); return; }
     pet.closeMenu();
     if (pet.state === 'walk' || pet.state === 'sleep') pet.setState('idle', 3);
     pet.anim.react('hop');
+    pet.evening?.close();
     void pet.chat?.show();
   });
   await onConfigChange((c) => void pet.applyConfig(c));

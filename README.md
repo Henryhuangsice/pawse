@@ -53,6 +53,14 @@ Pawse 是一只住在你桌面角落的小宠物（像素飞猫 / 宇航员 / �
 - 🤝 **不讨好、不黏人**：回复简短真诚、不奉承；鼓励你休息、按时下班、多和朋友家人联系；遇到情绪危机会建议联系身边的人或心理援助热线
 - 🔕 **主动搭话限频**：默认关闭；开启后每天最多 N 次，开会、全屏、刚聊过时都不打扰
 
+## M5（上半）—— 下班去哪儿
+
+- 🌆 **下班去哪儿**：右键菜单「下班去哪儿」，或跟它说「今晚去哪」「下班干嘛」；下班时它也会问一句要不要看看
+- 🌦 **看天气、看星期几**：下雨不推公园和夜跑，降温推火锅，太热推游泳；周五推小酒馆和演出，太晚了就劝你早点回家
+- 🔗 **点一下就去搜**：国内跳高德 / 小红书 / 大麦，海外跳 Google Maps / Yelp / Ticketmaster；按城市所在国家自动选
+- 🆓 **不用 Key、不收费**：天气来自 [Open-Meteo](https://open-meteo.com)，只发送你填的城市名；不读取定位，也不调用付费的地点接口
+- 设置里可以填城市、选偏好（吃 / 喝一杯 / 运动 / 演出电影 / 逛逛 / 回家歇着）
+
 ## 技术栈
 
 | 层 | 选型 | 原因 |
@@ -110,6 +118,8 @@ src-tauri/src/system.rs 键鼠空闲时间、前台窗口、已安装应用、�
 src-tauri/src/custom.rs 自定义宠物存储、.pawse 角色包
 src-tauri/src/genai.rs  文生图（通义万相 / OpenAI），API Key 存钥匙串
 src-tauri/src/chat.rs   聊天：OpenAI 兼容接口流式请求（Ollama / 智谱 / 硅基流动 / DeepSeek / 千问 / OpenAI / 自定义）
+src-tauri/src/weather.rs  天气：Open-Meteo 地名查询 + 当前天气（免费、无 Key，缓存 30 分钟）
+src/pet/evening.ts       下班去哪儿：按天气 / 星期 / 时间 / 偏好挑主意，生成搜索跳转链接
 src-tauri/src/tts.rs    朗读回复：macOS `say`（其他平台用 WebView 的 speechSynthesis）
 src-tauri/src/memory.rs 聊天记录与长期记忆（本地 SQLite）
 public/models/         抠图模型
