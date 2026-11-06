@@ -170,3 +170,24 @@ input.hue::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height:
 @keyframes spin { to { transform: rotate(360deg); } }
 .modal-foot { display: flex; gap: 8px; }
 .modal-foot input { flex: 1; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: inherit; font: inherit; }
+
+/* ---------- chat (M4) ---------- */
+#chatSection .hint { margin: 2px 0 8px; line-height: 1.5; }
+#memSummary {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  margin: 6px 0 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(30, 20, 50, 0.14);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.5;
+  background: #fff;
+  color: inherit;
+}
+#chatSection .row-btns { gap: 8px; margin-bottom: 4px; }
+button.mini.danger { color: #e5484d; }
+#chatSection .row input:not([type]) , #chatSection .row input[type=password] { flex: 1; min-width: 0; }
+.proactive-row { display: flex; align-items: center; gap: 6px; margin: 4px 0 6px; font-size: 13px; }

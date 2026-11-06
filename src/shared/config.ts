@@ -9,6 +9,28 @@ export const ACCESSORIES: Accessory[] = ['none', 'crown', 'shades', 'bow', 'head
 export type AiProvider = 'dashscope' | 'openai';
 export const AI_PROVIDERS: AiProvider[] = ['dashscope', 'openai'];
 
+/** chat models (M4); all speak the OpenAI-compatible chat API */
+export type ChatProvider = 'ollama' | 'deepseek' | 'qwen' | 'openai' | 'custom';
+export const CHAT_PROVIDERS: ChatProvider[] = ['ollama', 'deepseek', 'qwen', 'openai', 'custom'];
+export const CHAT_DEFAULT_MODEL: Record<ChatProvider, string> = {
+  ollama: 'qwen2.5:3b',
+  deepseek: 'deepseek-chat',
+  qwen: 'qwen-plus',
+  openai: 'gpt-4.1-mini',
+  custom: '',
+};
+/** keychain slot per provider (null = needs no key); Qwen shares the DashScope key */
+export const CHAT_KEY_SLOT: Record<ChatProvider, string | null> = {
+  ollama: null,
+  deepseek: 'deepseek',
+  qwen: 'dashscope',
+  openai: 'openai',
+  custom: 'custom',
+};
+export const OLLAMA_URL = 'http://localhost:11434/v1';
+/** Global shortcut that opens the chat box (registered in src-tauri/src/lib.rs). */
+export const CHAT_KEY = navigator.platform.startsWith('Mac') ? '⌃⌥C' : 'Ctrl+Alt+C';
+
 /** A pet made by the user (stored by the Rust side under app data, not in this config). */
 export interface CustomPetMeta {
   id: string;
@@ -93,6 +115,22 @@ export interface AppConfig {
     dashscope: { region: 'cn' | 'intl'; model: string };
     openai: { model: string };
   };
+  /** AI chat (M4); keys live in the keychain, the conversation in local SQLite */
+  chat: {
+    enabled: boolean;
+    provider: ChatProvider;
+    /** per provider; empty = CHAT_DEFAULT_MODEL */
+    models: Record<ChatProvider, string>;
+    ollamaUrl: string;
+    customUrl: string;
+    qwenRegion: 'cn' | 'intl';
+    /** empty fields = the pet's built-in personality */
+    persona: { traits: string; style: string; taboo: string };
+    /** remember what you talk about (a summary kept on this computer) */
+    memory: boolean;
+    /** let the pet start a conversation now and then: at most this many times a day (0 = never) */
+    proactivePerDay: number;
+  };
 }
 
 export const ROAM_PRESETS: Record<'bottomRight' | 'bottomBand' | 'rightColumn' | 'full', Rect01> = {
@@ -122,6 +160,17 @@ export const DEFAULT_CONFIG: AppConfig = {
   ],
   avoidActiveWindow: true,
   ai: { provider: 'dashscope', dashscope: { region: 'cn', model: '' }, openai: { model: '' } },
+  chat: {
+    enabled: true,
+    provider: 'ollama',
+    models: { ollama: '', deepseek: '', qwen: '', openai: '', custom: '' },
+    ollamaUrl: OLLAMA_URL,
+    customUrl: '',
+    qwenRegion: 'cn',
+    persona: { traits: '', style: '', taboo: '' },
+    memory: true,
+    proactivePerDay: 0,
+  },
 };
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -182,10 +231,30 @@ export function normalizeConfig(raw: unknown): AppConfig {
       },
       openai: { model: modelName(obj(obj(r.ai).openai).model) },
     },
+    chat: normalizeChat(obj(r.chat)),
   };
 }
 
-const modelName = (v: unknown) => (typeof v === 'string' && /^[\w.:-]{0,64}$/.test(v.trim()) ? v.trim() : '');
+const modelName = (v: unknown) => (typeof v === 'string' && /^[\w.:/-]{0,80}$/.test(v.trim()) ? v.trim() : '');
+const httpUrl = (v: unknown, fallback: string) =>
+  typeof v === 'string' && /^https?:\/\/[^\s]{1,300}$/.test(v.trim()) ? v.trim().replace(/\/+$/, '') : fallback;
+const text = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+function normalizeChat(c: Record<string, any>): AppConfig['chat'] {
+  const models = obj(c.models);
+  const persona = obj(c.persona);
+  return {
+    enabled: bool(c.enabled, true),
+    provider: CHAT_PROVIDERS.includes(c.provider) ? c.provider : 'ollama',
+    models: Object.fromEntries(CHAT_PROVIDERS.map((p) => [p, modelName(models[p])])) as Record<ChatProvider, string>,
+    ollamaUrl: httpUrl(c.ollamaUrl, OLLAMA_URL),
+    customUrl: httpUrl(c.customUrl, ''),
+    qwenRegion: c.qwenRegion === 'intl' ? 'intl' : 'cn',
+    persona: { traits: text(persona.traits, 200), style: text(persona.style, 200), taboo: text(persona.taboo, 200) },
+    memory: bool(c.memory, true),
+    proactivePerDay: Math.round(clamp(num(c.proactivePerDay, 0), 0, 6)),
+  };
+}
 
 function normalizeWork(w: Record<string, any>): WorkConfig {
   const d = DEFAULT_CONFIG.work;

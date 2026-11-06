@@ -12,7 +12,8 @@ use serde_json::{json, Value};
 use crate::custom::png_data_url;
 
 const SERVICE: &str = "io.github.pawse.desktop";
-pub const PROVIDERS: [&str; 2] = ["dashscope", "openai"];
+/// key slots in the keychain; "dashscope" and "openai" keys are shared by image generation and chat
+pub const PROVIDERS: [&str; 4] = ["dashscope", "openai", "deepseek", "custom"];
 
 fn entry(provider: &str) -> Result<keyring::Entry, String> {
     if !PROVIDERS.contains(&provider) {
@@ -37,7 +38,7 @@ pub fn has_key(provider: &str) -> bool {
     entry(provider).and_then(|e| e.get_password().map_err(|e| e.to_string())).is_ok()
 }
 
-fn get_key(provider: &str) -> Result<String, String> {
+pub fn get_key(provider: &str) -> Result<String, String> {
     entry(provider)?.get_password().map_err(|_| "no API key".into())
 }
 

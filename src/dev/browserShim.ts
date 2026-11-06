@@ -50,6 +50,12 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
     return c.toDataURL('image/png');
   };
 
+  type ChatRow = { id: number; ts: number; role: string; content: string };
+  const chatLog = (): ChatRow[] => {
+    try { return JSON.parse(localStorage.getItem('pawse-chat') ?? '[]'); } catch { return []; }
+  };
+  const chatCancelled = new Set<string>();
+
   const invoke = async (cmd: string, args: Record<string, any> = {}) => {
     switch (cmd) {
       case 'get_config': return readCfg();
@@ -107,7 +113,7 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
       case 'import_pet_pack':
         return null;
       case 'api_key_status':
-        return { dashscope: localStorage.getItem('pawse-key-dashscope') === '1', openai: localStorage.getItem('pawse-key-openai') === '1' };
+        return Object.fromEntries(['dashscope', 'openai', 'deepseek', 'custom'].map((p) => [p, localStorage.getItem(`pawse-key-${p}`) === '1']));
       case 'set_api_key':
         // only a flag — never store a key in the browser
         localStorage.setItem(`pawse-key-${args.provider}`, args.key ? '1' : '0');
@@ -115,6 +121,54 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
       case 'generate_pet_image':
         await new Promise((r) => setTimeout(r, 600));
         return mockGenerated(args.req.prompt);
+      // ---- M4: chat; window.__shimChat(req) can return {text, tool_calls} or throw an error code ----
+      case 'chat_send': {
+        const req = args.req;
+        const hook = (window as any).__shimChat;
+        if (hook) {
+          const out = await hook(req);
+          if (typeof out === 'string') throw out;
+          if (out) return { cancelled: false, tool_calls: [], ...out };
+        }
+        const slot = ({ deepseek: 'deepseek', qwen: 'dashscope', openai: 'openai' } as Record<string, string>)[req.provider];
+        if (slot && localStorage.getItem(`pawse-key-${slot}`) !== '1') throw 'nokey';
+        const last = [...req.messages].reverse().find((m: any) => m.role === 'user')?.content ?? '';
+        const text = req.stream_events === false
+          ? '- 用户在做桌面宠物项目\n- 喜欢喝茶'
+          : `（模拟回复）收到「${String(last).slice(0, 20)}」，我在呢～`;
+        if (req.stream_events !== false) {
+          for (const ch of text.match(/.{1,3}/gu) ?? []) {
+            if (chatCancelled.has(req.id)) return { text: '', tool_calls: [], cancelled: true };
+            await new Promise((r) => setTimeout(r, 40));
+            emit('chat-delta', { id: req.id, text: ch });
+          }
+        }
+        return { text, tool_calls: [], cancelled: false };
+      }
+      case 'chat_cancel': chatCancelled.add(args.id); return null;
+      case 'chat_log': {
+        const log = chatLog();
+        const id = (log[log.length - 1]?.id ?? 0) + 1;
+        log.push({ id, ts: Date.now(), role: args.role === 'assistant' ? 'assistant' : 'user', content: args.content });
+        localStorage.setItem('pawse-chat', JSON.stringify(log));
+        return id;
+      }
+      case 'chat_recent': return chatLog().slice(-args.limit);
+      case 'chat_after': return chatLog().filter((m) => m.id > args.after).slice(0, args.limit);
+      case 'memory_get': {
+        const mem = JSON.parse(localStorage.getItem('pawse-memory') ?? '{"summary":"","upto":0}');
+        return { ...mem, pending: chatLog().filter((m) => m.id > mem.upto).length };
+      }
+      case 'memory_set': {
+        const mem = JSON.parse(localStorage.getItem('pawse-memory') ?? '{"summary":"","upto":0}');
+        localStorage.setItem('pawse-memory', JSON.stringify({ summary: args.summary, upto: args.upto ?? mem.upto }));
+        return null;
+      }
+      case 'memory_clear':
+        localStorage.removeItem('pawse-chat');
+        localStorage.removeItem('pawse-memory');
+        emit('memory-cleared', null);
+        return null;
       case 'get_autostart': return localStorage.getItem('pawse-autostart') === '1';
       case 'set_autostart':
         localStorage.setItem('pawse-autostart', args.enabled ? '1' : '0');

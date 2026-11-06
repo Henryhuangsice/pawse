@@ -3,9 +3,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { emitTo } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
-  loadConfig, onConfigChange, saveConfig, ACCESSORIES, AI_PROVIDERS, LAUNCHER_KEY, PET_KINDS, REMINDER_KINDS, ROAM_PRESETS,
-  type Accessory, type AiProvider, type AppConfig, type CustomPetMeta, type Lang, type PetKind, type Rect01,
+  loadConfig, onConfigChange, saveConfig, ACCESSORIES, AI_PROVIDERS, CHAT_DEFAULT_MODEL, CHAT_KEY, CHAT_KEY_SLOT, CHAT_PROVIDERS,
+  LAUNCHER_KEY, PET_KINDS, REMINDER_KINDS, ROAM_PRESETS,
+  type Accessory, type AiProvider, type AppConfig, type ChatProvider, type CustomPetMeta, type Lang, type PetKind, type Rect01,
 } from '../shared/config';
+import { chatRequest, explainError, visible } from '../pet/chat';
 import { listen } from '@tauri-apps/api/event';
 import { setLang, t } from '../shared/i18n';
 import { Animator } from '../pet/animator';
@@ -22,6 +24,8 @@ let customs: CustomPetMeta[] = [];
 const thumbs = new Map<string, string>();
 let keys: Record<string, boolean> = {};
 let toast = '';
+let memory = { summary: '', upto: 0, pending: 0 };
+let testing = false;
 
 const DAYS_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const check = (id: string, on: boolean, label: string) =>
@@ -116,6 +120,7 @@ function render() {
       </label>
     </section>
 
+    ${chatSection()}
     ${aiSection()}
 
     <section class="next">
@@ -172,6 +177,138 @@ function aiSection() {
       <label class="row"><span>${t('settings.aiModel')}</span>
         <input id="aiModel" maxlength="64" value="${escapeAttr(p === 'dashscope' ? ai.dashscope.model : ai.openai.model)}" placeholder="${escapeAttr(t('settings.aiModelPh', { model: def }))}"/></label>
     </section>`;
+}
+
+function chatSection() {
+  const c = cfg.chat;
+  const p = c.provider;
+  const slot = CHAT_KEY_SLOT[p];
+  const model = CHAT_DEFAULT_MODEL[p];
+  const persona = c.persona;
+  return `
+    <section id="chatSection">
+      <h2>${t('settings.chat')}</h2>
+      <p class="desc">${t('settings.chatDesc')}</p>
+      ${check('chatOn', c.enabled, t('settings.chatOn', { key: CHAT_KEY }))}
+      <fieldset ${c.enabled ? '' : 'disabled'}>
+        <div class="chips providers-row">${CHAT_PROVIDERS.map((x) => {
+          const sl = CHAT_KEY_SLOT[x];
+          return `<button data-chatprov="${x}" class="${x === p ? 'on' : ''}">${t(`chatProv.${x}`)}${sl && sl !== 'custom' && keys[sl] ? ' ✓' : ''}</button>`;
+        }).join('')}</div>
+        ${p === 'ollama' ? `<p class="hint">${escapeAttr(t('settings.chatOllamaHint', { model: c.models.ollama || model }))}</p>` : ''}
+        ${p === 'custom' ? `<p class="hint">${t('settings.chatCustomHint')}</p>` : ''}
+        ${p === 'qwen' ? `<p class="hint">${t('settings.chatQwenKey')}</p>` : ''}
+        ${p === 'ollama' || p === 'custom' ? `
+          <label class="row"><span>${t('settings.chatUrl')}</span>
+            <input id="chatUrl" maxlength="300" value="${escapeAttr(p === 'ollama' ? c.ollamaUrl : c.customUrl)}" placeholder="https://…/v1"/></label>` : ''}
+        ${slot ? `
+          <div class="row">
+            <span>${t('settings.aiKey')}</span>
+            <input id="chatKey" type="password" autocomplete="off" placeholder="${escapeAttr(keys[slot] ? t('settings.aiKeySaved') + ' ✓' : t('settings.aiKeyPh'))}"/>
+            <button id="chatKeySave" class="mini">${t('settings.aiKeySave')}</button>
+            ${keys[slot] ? `<button id="chatKeyClear" class="mini">${t('settings.aiKeyClear')}</button>` : ''}
+          </div>` : ''}
+        ${p === 'qwen' ? `
+          <label class="row"><span>${t('settings.aiRegion')}</span>
+            <select id="chatRegion">
+              <option value="cn" ${c.qwenRegion === 'cn' ? 'selected' : ''}>${t('settings.aiRegionCn')}</option>
+              <option value="intl" ${c.qwenRegion === 'intl' ? 'selected' : ''}>${t('settings.aiRegionIntl')}</option>
+            </select></label>` : ''}
+        <div class="row">
+          <span>${t('settings.aiModel')}</span>
+          <input id="chatModel" maxlength="80" value="${escapeAttr(c.models[p])}" placeholder="${escapeAttr(model ? t('settings.aiModelPh', { model }) : '')}"/>
+          <button id="chatTest" class="mini" ${testing ? 'disabled' : ''}>${testing ? t('settings.chatTesting') : t('settings.chatTest')}</button>
+        </div>
+
+        <h3>${t('settings.persona')}</h3>
+        <p class="desc">${t('settings.personaDesc')}</p>
+        <label class="row"><span>${t('settings.personaTraits')}</span><input id="pTraits" maxlength="200" value="${escapeAttr(persona.traits)}"/></label>
+        <label class="row"><span>${t('settings.personaStyle')}</span><input id="pStyle" maxlength="200" value="${escapeAttr(persona.style)}"/></label>
+        <label class="row"><span>${t('settings.personaTaboo')}</span><input id="pTaboo" maxlength="200" value="${escapeAttr(persona.taboo)}" placeholder="${escapeAttr(t('settings.personaTabooPh'))}"/></label>
+
+        <h3>${t('settings.memory')}</h3>
+        ${check('memOn', c.memory, t('settings.memoryOn'))}
+        <textarea id="memSummary" rows="4" maxlength="1500" placeholder="${escapeAttr(t('settings.memorySummaryPh'))}" ${c.memory ? '' : 'disabled'}>${escapeAttr(memory.summary)}</textarea>
+        <div class="row-btns">
+          <button id="memSave" class="mini" ${c.memory ? '' : 'disabled'}>${t('settings.memorySave')}</button>
+          <button id="memClear" class="mini danger">${t('settings.memoryClear')}</button>
+        </div>
+
+        <h3>${t('settings.proactive')}</h3>
+        <div class="proactive-row">${t('settings.proactiveRow', { n: minutes('proactive', c.proactivePerDay, 0, 6) })}</div>
+        <p class="hint">${t('settings.proactiveHint')}</p>
+      </fieldset>
+    </section>`;
+}
+
+function bindChat() {
+  const $in = <T extends HTMLElement = HTMLInputElement>(id: string) => app.querySelector<T>(`#${id}`);
+  const chat = (patch: Partial<AppConfig['chat']>, rerender = false) => update({ chat: { ...cfg.chat, ...patch } }, rerender);
+  $in('chatOn')?.addEventListener('change', (e) => chat({ enabled: (e.target as HTMLInputElement).checked }, true));
+  app.querySelectorAll<HTMLButtonElement>('[data-chatprov]').forEach((b) =>
+    b.addEventListener('click', () => chat({ provider: b.dataset.chatprov as ChatProvider }, true)));
+  $in('chatUrl')?.addEventListener('change', (e) => {
+    const v = (e.target as HTMLInputElement).value.trim();
+    chat(cfg.chat.provider === 'ollama' ? { ollamaUrl: v } : { customUrl: v });
+  });
+  $in('chatRegion')?.addEventListener('change', (e) => chat({ qwenRegion: (e.target as HTMLSelectElement).value as 'cn' | 'intl' }));
+  $in('chatModel')?.addEventListener('change', (e) =>
+    chat({ models: { ...cfg.chat.models, [cfg.chat.provider]: (e.target as HTMLInputElement).value.trim() } }));
+
+  const slot = CHAT_KEY_SLOT[cfg.chat.provider];
+  const keyIn = $in('chatKey');
+  const saveKey = async (key: string) => {
+    if (!slot) return;
+    try {
+      await invoke('set_api_key', { provider: slot, key });
+      keys = await invoke<Record<string, boolean>>('api_key_status');
+      flashToast(key ? t('settings.aiKeySaved') : t('settings.saved'));
+    } catch (e) {
+      flashToast(String(e));
+    }
+  };
+  $in('chatKeySave')?.addEventListener('click', () => keyIn?.value.trim() && void saveKey(keyIn.value));
+  keyIn?.addEventListener('keydown', (e) => e.key === 'Enter' && keyIn.value.trim() && void saveKey(keyIn.value));
+  $in('chatKeyClear')?.addEventListener('click', () => void saveKey(''));
+
+  $in('chatTest')?.addEventListener('click', async () => {
+    testing = true;
+    render();
+    try {
+      const zh = cfg.lang === 'zh' || (cfg.lang === 'auto' && navigator.language.startsWith('zh'));
+      const r = await invoke<{ text: string }>('chat_send', chatRequest(cfg, `t${Date.now().toString(36)}`, [
+        { role: 'system', content: zh ? '用不超过 10 个字回复。' : 'Reply in under 8 words.' },
+        { role: 'user', content: zh ? '你好，能听到吗？' : 'Hi, can you hear me?' },
+      ], { tools: false, stream_events: false, max_tokens: 60 }));
+      testing = false;
+      flashToast(t('settings.chatTestOk', { reply: visible(r.text).trim().slice(0, 40) || '✓' }));
+    } catch (e) {
+      testing = false;
+      flashToast(explainError(cfg, e));
+    }
+  });
+
+  const persona = (k: keyof AppConfig['chat']['persona']) => (e: Event) =>
+    chat({ persona: { ...cfg.chat.persona, [k]: (e.target as HTMLInputElement).value } });
+  $in('pTraits')?.addEventListener('change', persona('traits'));
+  $in('pStyle')?.addEventListener('change', persona('style'));
+  $in('pTaboo')?.addEventListener('change', persona('taboo'));
+
+  $in('memOn')?.addEventListener('change', (e) => chat({ memory: (e.target as HTMLInputElement).checked }, true));
+  $in('memSave')?.addEventListener('click', async () => {
+    const v = $in<HTMLTextAreaElement>('memSummary')!.value;
+    await invoke('memory_set', { summary: v, upto: null });
+    memory = { ...memory, summary: v.trim() };
+    flashToast(t('settings.memorySaved'));
+  });
+  $in('memClear')?.addEventListener('click', async () => {
+    if (!confirm(t('settings.memoryClearConfirm'))) return;
+    await invoke('memory_clear');
+    memory = { summary: '', upto: 0, pending: 0 };
+    flashToast(t('settings.memoryCleared'));
+  });
+  $in('proactive')?.addEventListener('change', (e) =>
+    chat({ proactivePerDay: clampNum(e.target as HTMLInputElement, 0, 6) }));
 }
 
 function flashToast(msg: string) {
@@ -385,6 +522,7 @@ function bind() {
     }
   });
   onChange('avoid', (el) => update({ avoidActiveWindow: el.checked }));
+  bindChat();
 }
 
 const clampNum = (el: HTMLInputElement, lo: number, hi: number) => {
@@ -435,6 +573,7 @@ async function boot() {
     invoke<CustomPetMeta[]>('list_custom_pets').catch(() => []),
     invoke<Record<string, boolean>>('api_key_status').catch(() => ({})),
   ]);
+  memory = await invoke<typeof memory>('memory_get').catch(() => memory);
   render();
   await listen<CustomPetMeta[]>('custom-pets-changed', (e) => {
     customs = e.payload ?? [];
@@ -442,7 +581,7 @@ async function boot() {
   });
   await onConfigChange((c) => {
     // only re-render for changes made elsewhere (e.g. the on-screen roam editor)
-    const focusedInput = document.activeElement instanceof HTMLInputElement;
+    const focusedInput = document.activeElement instanceof HTMLInputElement || document.activeElement instanceof HTMLTextAreaElement;
     const roamChanged = !sameRect(c.roam, cfg.roam);
     // the saved config drops launcher rows without a target; keep the drafts being typed here
     const drafts = cfg.launcher.some((it) => !it.target.trim());

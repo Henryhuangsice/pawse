@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
-  loadConfig, onConfigChange, saveConfig, LAUNCHER_KEY, PET_KINDS,
+  loadConfig, onConfigChange, saveConfig, CHAT_KEY, LAUNCHER_KEY, PET_KINDS,
   type AppConfig, type CustomPetMeta, type PetKind, type ReminderKind,
 } from '../shared/config';
 import { line, locale, petName, setLang, t, type LineKind } from '../shared/i18n';
@@ -11,6 +11,7 @@ import { Animator, type Reaction } from './animator';
 import { CUSTOM_META, customSVG, petSVG } from './art';
 import { loadImage } from '../shared/image';
 import { Companion, type CompanionEvent, type Presence } from './companion';
+import { Chat } from './chat';
 import { openRoamEditor } from './roamEditor';
 
 const BASE = 120; // pet art size in px at scale 1
@@ -60,6 +61,8 @@ class Pet {
   /** the active custom pet, once loaded */
   customPet: { id: string; name: string; image: string; aspect: number } | null = null;
   customs: CustomPetMeta[] = [];
+  /** the chat box (M4), created in boot() */
+  chat: Chat | null = null;
 
   petEl = $<HTMLDivElement>('#pet');
   artEl = $<HTMLDivElement>('#pet-art');
@@ -155,7 +158,7 @@ class Pet {
 
     switch (this.state) {
       case 'idle':
-        if (!this.hover && !this.menuOpen && this.stateT > this.stateDur && !this.anim.isReacting) this.decide(now);
+        if (!this.hover && !this.menuOpen && !this.chat?.open && this.stateT > this.stateDur && !this.anim.isReacting) this.decide(now);
         break;
       case 'walk':
       case 'return': {
@@ -425,6 +428,7 @@ class Pet {
     const sleeping = this.state === 'sleep';
     this.menuEl.innerHTML = `
       <div class="menu-title">${escapeHtml(this.name)}</div>
+      ${this.cfg.chat.enabled ? `<button data-a="chat">💬 ${t('menu.chat')} <kbd>${CHAT_KEY}</kbd></button>` : ''}
       <button data-a="pet">🤚 ${t('menu.pet')}</button>
       <button data-a="${sleeping ? 'wake' : 'sleep'}">${sleeping ? '☀️ ' + t('menu.wake') : '💤 ' + t('menu.sleep')}</button>
       <div class="menu-label">${t('menu.switch')}</div>
@@ -517,6 +521,7 @@ class Pet {
       return;
     }
     switch (a) {
+      case 'chat': void this.chat?.show(); break;
       case 'pet': this.onPetted(now); break;
       case 'sleep': this.setState('sleep', rand(40, 90)); this.say(line('sleep', this.lineKind)); break;
       case 'wake': this.onClick(now); break;
@@ -574,6 +579,8 @@ class Pet {
       }
     }
     if (prev.pet.scale !== next.pet.scale) this.applyScale();
+    this.chat?.refresh();
+    if (!next.chat.enabled) this.chat?.close();
     if (JSON.stringify(prev.roam) !== JSON.stringify(next.roam) && !this.inBounds()) this.walkBack();
   }
 
@@ -596,6 +603,7 @@ class Pet {
         this.bubbleEl.style.setProperty('--tail-x', `${clamp(this.x + this.size / 2 - left, 14, bw - 14)}px`);
       }
     }
+    this.chat?.position();
     this.syncHitRegions(now);
   }
 
@@ -605,6 +613,7 @@ class Pet {
     const rects: Box[] = [this.hitBox()];
     if (!this.bubbleEl.classList.contains('hidden')) rects.push(toBox(this.bubbleEl.getBoundingClientRect()));
     if (this.menuOpen) rects.push(toBox(this.menuEl.getBoundingClientRect()));
+    if (this.chat?.open) rects.push(toBox(this.chat.el.getBoundingClientRect()));
     const key = rects.map((r) => `${r.x | 0},${r.y | 0},${r.w | 0},${r.h | 0}`).join(';');
     if (key === this.lastSentHit) return;
     this.lastSentHit = key;
@@ -755,6 +764,28 @@ async function boot() {
   });
   await listen('edit-roam', () => pet.editRoam());
   await listen('open-launcher', () => pet.openLauncher());
+  pet.chat = new Chat({
+    get cfg() { return pet.cfg; },
+    get name() { return pet.name; },
+    get lineKind() { return pet.lineKind; },
+    get x() { return pet.x; },
+    get y() { return pet.y; },
+    get size() { return pet.size; },
+    get quiet() { return pet.quiet; },
+    get asking() { return pet.askTimeout !== null; },
+    talk: (ms) => pet.anim.talk(ms),
+    react: (r) => pet.anim.react(r),
+    say: (text, ms) => pet.say(text, ms),
+    ask: (text, actions, onTimeout, ms) => pet.ask(text, actions, onTimeout, ms),
+    wake: () => { if (pet.state === 'sleep') pet.setState('idle', 3); },
+  }, () => (pet.customPet ? (locale() === 'zh' ? '用户自己做的形象' : 'a picture the user made') : t(`kind.${pet.cfg.pet.kind}`)));
+  await listen('open-chat', () => {
+    if (!pet.cfg.chat.enabled) { pet.say(t('chat.off')); return; }
+    pet.closeMenu();
+    if (pet.state === 'walk' || pet.state === 'sleep') pet.setState('idle', 3);
+    pet.anim.react('hop');
+    void pet.chat?.show();
+  });
   await onConfigChange((c) => void pet.applyConfig(c));
 
   let last = performance.now();

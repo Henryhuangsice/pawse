@@ -11,9 +11,13 @@
 //! a quick launcher, launch-at-login and a global shortcut that opens the launcher.
 //! M3 adds custom pets (cut-out images + `.pawse` packs, see `custom.rs`) and
 //! text-to-image with the user's own key kept in the OS keychain (`genai.rs`).
+//! M4 adds AI chat over any OpenAI-compatible endpoint, local Ollama included (`chat.rs`),
+//! with the conversation and a long-term summary kept in local SQLite (`memory.rs`).
 
+mod chat;
 mod custom;
 mod genai;
+mod memory;
 mod system;
 
 use std::{fs, path::PathBuf, sync::Mutex, thread, time::Duration};
@@ -33,6 +37,8 @@ const SETTINGS: &str = "settings";
 const TRAY: &str = "main";
 /// Opens the launcher next to the pet. ⌃⌥P on macOS, Ctrl+Alt+P elsewhere.
 const LAUNCHER_SHORTCUT: &str = "ctrl+alt+KeyP";
+/// Opens the chat box. ⌃⌥C on macOS, Ctrl+Alt+C elsewhere.
+const CHAT_SHORTCUT: &str = "ctrl+alt+KeyC";
 
 #[derive(Clone, Copy, Debug, Deserialize)]
 struct Rect {
@@ -257,6 +263,50 @@ async fn generate_pet_image(mut req: genai::GenRequest, zh: bool) -> Result<Stri
     genai::generate(req).await
 }
 
+// ---------------- chat (M4) ----------------
+
+#[tauri::command]
+async fn chat_send(app: AppHandle, req: chat::ChatRequest) -> Result<chat::ChatReply, String> {
+    chat::send(&app, req).await
+}
+
+#[tauri::command]
+fn chat_cancel(id: String) {
+    chat::cancel(&id);
+}
+
+#[tauri::command]
+fn chat_log(app: AppHandle, db: tauri::State<memory::Db>, role: String, content: String) -> Result<i64, String> {
+    db.log(&app, &role, &content)
+}
+
+#[tauri::command]
+fn chat_recent(app: AppHandle, db: tauri::State<memory::Db>, limit: u32) -> Result<Vec<memory::Message>, String> {
+    db.recent(&app, limit)
+}
+
+#[tauri::command]
+fn chat_after(app: AppHandle, db: tauri::State<memory::Db>, after: i64, limit: u32) -> Result<Vec<memory::Message>, String> {
+    db.after(&app, after, limit)
+}
+
+#[tauri::command]
+fn memory_get(app: AppHandle, db: tauri::State<memory::Db>) -> Result<memory::MemoryState, String> {
+    db.state(&app)
+}
+
+#[tauri::command]
+fn memory_set(app: AppHandle, db: tauri::State<memory::Db>, summary: String, upto: Option<i64>) -> Result<(), String> {
+    db.set_summary(&app, &summary, upto)
+}
+
+#[tauri::command]
+fn memory_clear(app: AppHandle, db: tauri::State<memory::Db>) -> Result<(), String> {
+    db.clear(&app)?;
+    let _ = app.emit("memory-cleared", ());
+    Ok(())
+}
+
 #[tauri::command]
 fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
     let al = app.autolaunch();
@@ -362,17 +412,19 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_shortcuts([LAUNCHER_SHORTCUT])
-                .expect("valid launcher shortcut")
-                .with_handler(|app, _shortcut, event| {
+                .with_shortcuts([LAUNCHER_SHORTCUT, CHAT_SHORTCUT])
+                .expect("valid shortcuts")
+                .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
                         let _ = set_pet_visible(app, Some(true));
-                        let _ = app.emit_to(EventTarget::webview_window(PET), "open-launcher", ());
+                        let ev = if shortcut.key == tauri_plugin_global_shortcut::Code::KeyC { "open-chat" } else { "open-launcher" };
+                        let _ = app.emit_to(EventTarget::webview_window(PET), ev, ());
                     }
                 })
                 .build(),
         )
         .manage(AppState::default())
+        .manage(memory::Db::default())
         .invoke_handler(tauri::generate_handler![
             set_hit_regions,
             set_interactive_lock,
@@ -397,7 +449,15 @@ pub fn run() {
             import_pet_pack,
             set_api_key,
             api_key_status,
-            generate_pet_image
+            generate_pet_image,
+            chat_send,
+            chat_cancel,
+            chat_log,
+            chat_recent,
+            chat_after,
+            memory_get,
+            memory_set,
+            memory_clear
         ])
         .setup(|app| {
             // A pet is not a "real" app window: no Dock icon, lives in the menu bar tray.
