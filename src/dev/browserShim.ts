@@ -113,7 +113,7 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
       case 'import_pet_pack':
         return null;
       case 'api_key_status':
-        return Object.fromEntries(['dashscope', 'openai', 'deepseek', 'custom'].map((p) => [p, localStorage.getItem(`pawse-key-${p}`) === '1']));
+        return Object.fromEntries(['dashscope', 'openai', 'deepseek', 'zhipu', 'siliconflow', 'custom'].map((p) => [p, localStorage.getItem(`pawse-key-${p}`) === '1']));
       case 'set_api_key':
         // only a flag — never store a key in the browser
         localStorage.setItem(`pawse-key-${args.provider}`, args.key ? '1' : '0');
@@ -130,7 +130,7 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
           if (typeof out === 'string') throw out;
           if (out) return { cancelled: false, tool_calls: [], ...out };
         }
-        const slot = ({ deepseek: 'deepseek', qwen: 'dashscope', openai: 'openai' } as Record<string, string>)[req.provider];
+        const slot = ({ deepseek: 'deepseek', qwen: 'dashscope', openai: 'openai', zhipu: 'zhipu', siliconflow: 'siliconflow' } as Record<string, string>)[req.provider];
         if (slot && localStorage.getItem(`pawse-key-${slot}`) !== '1') throw 'nokey';
         const last = [...req.messages].reverse().find((m: any) => m.role === 'user')?.content ?? '';
         const text = req.stream_events === false
@@ -146,6 +146,9 @@ if (import.meta.env.DEV && !('__TAURI_INTERNALS__' in window)) {
         return { text, tool_calls: [], cancelled: false };
       }
       case 'chat_cancel': chatCancelled.add(args.id); return null;
+      // no `say` in the browser: the frontend falls back to speechSynthesis
+      case 'tts_speak': (window as any).__shimSpoken = args.text; throw new Error('unsupported');
+      case 'tts_stop': return null;
       case 'chat_log': {
         const log = chatLog();
         const id = (log[log.length - 1]?.id ?? 0) + 1;

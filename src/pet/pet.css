@@ -236,7 +236,9 @@ html, body {
 .chat-head { display: flex; align-items: center; padding: 8px 8px 4px 12px; }
 .chat-name { flex: 1; font-weight: 600; font-size: 12px; color: var(--muted); }
 .chat-x { border: 0; background: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 2px 6px; border-radius: 6px; }
-.chat-x:hover { background: rgba(30, 20, 50, 0.08); }
+.chat-speak { border: 0; background: none; font-size: 13px; cursor: pointer; padding: 2px 6px; border-radius: 6px; opacity: 0.55; }
+.chat-speak.on { opacity: 1; }
+.chat-speak:hover, .chat-x:hover { background: rgba(30, 20, 50, 0.08); }
 .chat-log {
   display: flex;
   flex-direction: column;

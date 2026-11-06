@@ -10,10 +10,14 @@ export type AiProvider = 'dashscope' | 'openai';
 export const AI_PROVIDERS: AiProvider[] = ['dashscope', 'openai'];
 
 /** chat models (M4); all speak the OpenAI-compatible chat API */
-export type ChatProvider = 'ollama' | 'deepseek' | 'qwen' | 'openai' | 'custom';
-export const CHAT_PROVIDERS: ChatProvider[] = ['ollama', 'deepseek', 'qwen', 'openai', 'custom'];
+export type ChatProvider = 'ollama' | 'zhipu' | 'siliconflow' | 'deepseek' | 'qwen' | 'openai' | 'custom';
+export const CHAT_PROVIDERS: ChatProvider[] = ['ollama', 'zhipu', 'siliconflow', 'deepseek', 'qwen', 'openai', 'custom'];
+/** providers with a free tier (labelled in Settings) */
+export const CHAT_FREE: ChatProvider[] = ['ollama', 'zhipu', 'siliconflow'];
 export const CHAT_DEFAULT_MODEL: Record<ChatProvider, string> = {
   ollama: 'qwen2.5:3b',
+  zhipu: 'glm-4.7-flash',
+  siliconflow: 'Qwen/Qwen2.5-7B-Instruct',
   deepseek: 'deepseek-chat',
   qwen: 'qwen-plus',
   openai: 'gpt-4.1-mini',
@@ -22,6 +26,8 @@ export const CHAT_DEFAULT_MODEL: Record<ChatProvider, string> = {
 /** keychain slot per provider (null = needs no key); Qwen shares the DashScope key */
 export const CHAT_KEY_SLOT: Record<ChatProvider, string | null> = {
   ollama: null,
+  zhipu: 'zhipu',
+  siliconflow: 'siliconflow',
   deepseek: 'deepseek',
   qwen: 'dashscope',
   openai: 'openai',
@@ -130,6 +136,8 @@ export interface AppConfig {
     memory: boolean;
     /** let the pet start a conversation now and then: at most this many times a day (0 = never) */
     proactivePerDay: number;
+    /** read replies aloud with the system voice (free, offline) */
+    speak: boolean;
   };
 }
 
@@ -163,13 +171,14 @@ export const DEFAULT_CONFIG: AppConfig = {
   chat: {
     enabled: true,
     provider: 'ollama',
-    models: { ollama: '', deepseek: '', qwen: '', openai: '', custom: '' },
+    models: { ollama: '', zhipu: '', siliconflow: '', deepseek: '', qwen: '', openai: '', custom: '' },
     ollamaUrl: OLLAMA_URL,
     customUrl: '',
     qwenRegion: 'cn',
     persona: { traits: '', style: '', taboo: '' },
     memory: true,
     proactivePerDay: 0,
+    speak: false,
   },
 };
 
@@ -253,6 +262,7 @@ function normalizeChat(c: Record<string, any>): AppConfig['chat'] {
     persona: { traits: text(persona.traits, 200), style: text(persona.style, 200), taboo: text(persona.taboo, 200) },
     memory: bool(c.memory, true),
     proactivePerDay: Math.round(clamp(num(c.proactivePerDay, 0), 0, 6)),
+    speak: bool(c.speak, false),
   };
 }
 

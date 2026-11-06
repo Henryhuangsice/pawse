@@ -14,9 +14,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { CHAT_DEFAULT_MODEL, CHAT_KEY_SLOT, type AppConfig, type ChatProvider } from '../shared/config';
+import { saveConfig, CHAT_DEFAULT_MODEL, CHAT_KEY_SLOT, type AppConfig, type ChatProvider } from '../shared/config';
 import { line, locale, t, type LineKind } from '../shared/i18n';
 import { parseIntent, resolveOpen, type Intent } from './intents';
+import { speak, stopSpeaking } from './speech';
 
 const CONTEXT_MESSAGES = 12;
 const CONTEXT_HOURS = 6;
@@ -178,7 +179,7 @@ export class Chat {
     this.el = document.createElement('div');
     this.el.className = 'chat hidden';
     this.el.innerHTML = `
-      <div class="chat-head"><span class="chat-name"></span><button class="chat-x" aria-label="${t('chat.close')}">✕</button></div>
+      <div class="chat-head"><span class="chat-name"></span><button class="chat-speak" type="button"></button><button class="chat-x" aria-label="${t('chat.close')}">✕</button></div>
       <div class="chat-log" role="log" aria-live="polite"></div>
       <form class="chat-input">
         <textarea rows="1" maxlength="1000"></textarea>
@@ -192,6 +193,11 @@ export class Chat {
     this.footEl = this.el.querySelector('.chat-foot')!;
 
     this.el.querySelector('.chat-x')!.addEventListener('click', () => this.close());
+    this.el.querySelector('.chat-speak')!.addEventListener('click', () => {
+      const c = this.host.cfg;
+      if (c.chat.speak) stopSpeaking();
+      void saveConfig({ ...c, chat: { ...c.chat, speak: !c.chat.speak } });
+    });
     this.el.querySelector('form')!.addEventListener('submit', (e) => {
       e.preventDefault();
       if (this.pending) void invoke('chat_cancel', { id: this.pending.id });
@@ -239,6 +245,7 @@ export class Chat {
     this.open = false;
     this.el.classList.add('hidden');
     this.input.blur();
+    stopSpeaking();
   }
 
   /** labels that depend on the config / language */
@@ -247,6 +254,12 @@ export class Chat {
     const p = c.provider;
     this.el.querySelector('.chat-name')!.textContent = this.host.name;
     this.input.placeholder = t('chat.ph', { name: this.host.name });
+    this.input.title = t('chat.dictate');
+    const sp = this.el.querySelector<HTMLButtonElement>('.chat-speak')!;
+    sp.textContent = c.speak ? '🔊' : '🔈';
+    sp.classList.toggle('on', c.speak);
+    sp.title = c.speak ? t('chat.speakOn') : t('chat.speakOff');
+    sp.setAttribute('aria-pressed', String(c.speak));
     this.sendBtn.textContent = this.pending ? t('chat.stop') : t('chat.send');
     this.sendBtn.classList.toggle('stop', !!this.pending);
     const model = c.models[p] || CHAT_DEFAULT_MODEL[p];
@@ -334,6 +347,7 @@ export class Chat {
     this.input.value = '';
     this.autosize();
     this.lastChatAt = Date.now();
+    stopSpeaking();
     this.push('user', text);
 
     const intent = parseIntent(text);
@@ -341,6 +355,7 @@ export class Chat {
       const reply = await this.runIntent(intent);
       this.push('assistant', reply);
       this.host.talk(Math.min(1500, 90 * reply.length));
+      this.speakReply(reply);
       return;
     }
     const cfg = this.host.cfg;
@@ -370,6 +385,7 @@ export class Chat {
       // the element is already on screen; record it without adding a second copy
       this.push('assistant', reply, false);
       this.host.talk(800);
+      if (!r.cancelled) this.speakReply(reply);
       void this.maybeSummarize();
     } catch (e) {
       el.remove();
@@ -380,6 +396,11 @@ export class Chat {
       this.refresh();
       this.scroll();
     }
+  }
+
+  /** read a reply aloud when the 🔊 toggle is on and the chat is still open */
+  private speakReply(text: string) {
+    if (this.host.cfg.chat.speak && this.open) void speak(text, locale() === 'zh' ? 'zh' : 'en');
   }
 
   private onDelta(d: { id: string; text: string }) {

@@ -19,6 +19,7 @@ mod custom;
 mod genai;
 mod memory;
 mod system;
+mod tts;
 
 use std::{fs, path::PathBuf, sync::Mutex, thread, time::Duration};
 
@@ -271,6 +272,16 @@ async fn chat_send(app: AppHandle, req: chat::ChatRequest) -> Result<chat::ChatR
 }
 
 #[tauri::command]
+fn tts_speak(text: String, lang: String) -> Result<(), String> {
+    tts::speak(&text, &lang)
+}
+
+#[tauri::command]
+fn tts_stop() {
+    tts::stop();
+}
+
+#[tauri::command]
 fn chat_cancel(id: String) {
     chat::cancel(&id);
 }
@@ -452,6 +463,8 @@ pub fn run() {
             generate_pet_image,
             chat_send,
             chat_cancel,
+            tts_speak,
+            tts_stop,
             chat_log,
             chat_recent,
             chat_after,

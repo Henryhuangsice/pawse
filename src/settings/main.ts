@@ -198,6 +198,9 @@ function chatSection() {
         ${p === 'ollama' ? `<p class="hint">${escapeAttr(t('settings.chatOllamaHint', { model: c.models.ollama || model }))}</p>` : ''}
         ${p === 'custom' ? `<p class="hint">${t('settings.chatCustomHint')}</p>` : ''}
         ${p === 'qwen' ? `<p class="hint">${t('settings.chatQwenKey')}</p>` : ''}
+        ${p === 'zhipu' ? `<p class="hint">${escapeAttr(t('settings.chatZhipuHint', { model: c.models.zhipu || model }))}</p>` : ''}
+        ${p === 'siliconflow' ? `<p class="hint">${escapeAttr(t('settings.chatSfHint', { model: c.models.siliconflow || model }))}</p>` : ''}
+        ${p === 'zhipu' || p === 'siliconflow' ? `<p class="hint">${t('settings.chatFreeNote')}</p>` : ''}
         ${p === 'ollama' || p === 'custom' ? `
           <label class="row"><span>${t('settings.chatUrl')}</span>
             <input id="chatUrl" maxlength="300" value="${escapeAttr(p === 'ollama' ? c.ollamaUrl : c.customUrl)}" placeholder="https://…/v1"/></label>` : ''}
@@ -219,6 +222,10 @@ function chatSection() {
           <input id="chatModel" maxlength="80" value="${escapeAttr(c.models[p])}" placeholder="${escapeAttr(model ? t('settings.aiModelPh', { model }) : '')}"/>
           <button id="chatTest" class="mini" ${testing ? 'disabled' : ''}>${testing ? t('settings.chatTesting') : t('settings.chatTest')}</button>
         </div>
+
+        <h3>${t('settings.voice')}</h3>
+        ${check('chatSpeak', c.speak, t('settings.chatSpeak'))}
+        <p class="hint">${t('settings.chatSpeakHint')}</p>
 
         <h3>${t('settings.persona')}</h3>
         <p class="desc">${t('settings.personaDesc')}</p>
@@ -251,6 +258,7 @@ function bindChat() {
     const v = (e.target as HTMLInputElement).value.trim();
     chat(cfg.chat.provider === 'ollama' ? { ollamaUrl: v } : { customUrl: v });
   });
+  $in('chatSpeak')?.addEventListener('change', (e) => chat({ speak: (e.target as HTMLInputElement).checked }));
   $in('chatRegion')?.addEventListener('change', (e) => chat({ qwenRegion: (e.target as HTMLSelectElement).value as 'cn' | 'intl' }));
   $in('chatModel')?.addEventListener('change', (e) =>
     chat({ models: { ...cfg.chat.models, [cfg.chat.provider]: (e.target as HTMLInputElement).value.trim() } }));

@@ -13,7 +13,7 @@ use crate::custom::png_data_url;
 
 const SERVICE: &str = "io.github.pawse.desktop";
 /// key slots in the keychain; "dashscope" and "openai" keys are shared by image generation and chat
-pub const PROVIDERS: [&str; 4] = ["dashscope", "openai", "deepseek", "custom"];
+pub const PROVIDERS: [&str; 6] = ["dashscope", "openai", "deepseek", "zhipu", "siliconflow", "custom"];
 
 fn entry(provider: &str) -> Result<keyring::Entry, String> {
     if !PROVIDERS.contains(&provider) {

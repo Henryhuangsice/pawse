@@ -33,7 +33,7 @@ fn clear_cancelled(id: &str) {
 pub struct ChatRequest {
     /// chosen by the frontend; tags the `chat-delta` events and allows cancelling
     pub id: String,
-    /// "ollama" | "deepseek" | "qwen" | "openai" | "custom"
+    /// "ollama" | "deepseek" | "qwen" | "openai" | "zhipu" | "siliconflow" | "custom"
     pub provider: String,
     pub model: String,
     /// Ollama / custom endpoint, e.g. "http://localhost:11434/v1"
@@ -93,6 +93,9 @@ fn endpoint(req: &ChatRequest) -> Result<(String, Option<&'static str>), String>
             Some("dashscope"),
         ),
         "openai" => ("https://api.openai.com/v1".into(), Some("openai")),
+        // free tiers: Zhipu GLM-*-Flash, SiliconFlow's free open models
+        "zhipu" => ("https://open.bigmodel.cn/api/paas/v4".into(), Some("zhipu")),
+        "siliconflow" => ("https://api.siliconflow.cn/v1".into(), Some("siliconflow")),
         "custom" => (custom_url()?, Some("custom")),
         _ => return Err("unknown provider".into()),
     })
@@ -298,6 +301,10 @@ pub async fn send(app: &AppHandle, req: ChatRequest) -> Result<ChatReply, String
             o.remove("temperature");
         }
     }
+    if req.provider == "zhipu" {
+        // GLM-4.7-Flash thinks by default; a pet's short replies don't need it
+        body["thinking"] = json!({ "type": "disabled" });
+    }
     if req.tools {
         body["tools"] = tools_schema();
     }
@@ -400,6 +407,8 @@ mod tests {
         assert_eq!(endpoint(&req("qwen", None, Some("intl"))).unwrap().1, Some("dashscope"));
         assert!(endpoint(&req("qwen", None, Some("intl"))).unwrap().0.contains("dashscope-intl"));
         assert_eq!(endpoint(&req("deepseek", None, None)).unwrap().1, Some("deepseek"));
+        assert_eq!(endpoint(&req("zhipu", None, None)).unwrap(), ("https://open.bigmodel.cn/api/paas/v4".into(), Some("zhipu")));
+        assert_eq!(endpoint(&req("siliconflow", None, None)).unwrap().1, Some("siliconflow"));
         assert_eq!(endpoint(&req("custom", Some("ftp://x"), None)).unwrap_err(), "badurl");
         assert!(endpoint(&req("nope", None, None)).is_err());
     }

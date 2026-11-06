@@ -45,7 +45,8 @@ Pawse 是一只住在你桌面角落的小宠物（像素飞猫 / 宇航员 / �
 ## M4 —— 会聊天的伙伴
 
 - 💬 **聊天**：右键宠物“聊聊天”或按 **⌃⌥C**（Windows: Ctrl+Alt+C），回复逐字显示在宠物旁边的对话框里
-- 🆓 **默认免费**：默认接本机的 [Ollama](https://ollama.com)（推荐 `ollama pull qwen2.5:3b`），不花 token，聊天内容不出电脑；也可以换成 DeepSeek、通义千问、OpenAI 或任何兼容 OpenAI 的接口（LM Studio、Moonshot、智谱…），Key 存系统钥匙串
+- 🆓 **默认免费**：默认接本机的 [Ollama](https://ollama.com)（推荐 `ollama pull qwen2.5:3b`），不花 token，聊天内容不出电脑；不想装东西就选**智谱 GLM-4.7-Flash** 或**硅基流动**的免费模型（注册拿个 Key 就行）；也可以换成 DeepSeek、通义千问、OpenAI 或任何兼容 OpenAI 的接口（LM Studio、Moonshot…），Key 存系统钥匙串
+- 🔊 **语音**：聊天框右上角 🔈 打开后，用系统自带的声音朗读回复（macOS 用 `say`，免费、不联网）；想用说的，连按两下 Fn 用 macOS 听写输入
 - ⚡ **本地指令**：“帮我打开微信”“十分钟后提醒我喝水”“半小时后叫我开会”“取消提醒”在本机直接识别执行，不调用模型，没接模型也能用；模型也可以通过工具调用做同样的事
 - 🎭 **人格卡**：性格、说话风格、不要做的事，留空用每只宠物自带的性格
 - 🧠 **记忆**：聊天记录和“它记得的关于你”存在本机 SQLite；最近的对话作为上下文，旧的自动整理成摘要（不记录密码、证件号等），设置里可查看、修改、一键清空
@@ -108,7 +109,8 @@ src-tauri/src/lib.rs   透明窗口、鼠标穿透轮询、托盘、配置读写
 src-tauri/src/system.rs 键鼠空闲时间、前台窗口、已安装应用、启动应用
 src-tauri/src/custom.rs 自定义宠物存储、.pawse 角色包
 src-tauri/src/genai.rs  文生图（通义万相 / OpenAI），API Key 存钥匙串
-src-tauri/src/chat.rs   聊天：OpenAI 兼容接口流式请求（Ollama / DeepSeek / 千问 / OpenAI / 自定义）
+src-tauri/src/chat.rs   聊天：OpenAI 兼容接口流式请求（Ollama / 智谱 / 硅基流动 / DeepSeek / 千问 / OpenAI / 自定义）
+src-tauri/src/tts.rs    朗读回复：macOS `say`（其他平台用 WebView 的 speechSynthesis）
 src-tauri/src/memory.rs 聊天记录与长期记忆（本地 SQLite）
 public/models/         抠图模型
 docs/ROADMAP.md        分阶段计划
