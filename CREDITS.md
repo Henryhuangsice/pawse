@@ -1,5 +1,11 @@
 # Credits
 
+本项目代码以 [MIT 许可证](LICENSE) 发布，但下面列出的第三方内容沿用各自的许可，不适用 MIT。
+“Pawse / 爪憩”这个名称和应用图标是本项目的标识，MIT 许可证不授权将它们用于其他产品。
+
+The code is released under the [MIT License](LICENSE). The third-party material listed below keeps its own license and is not covered by MIT.
+The name "Pawse / 爪憩" and the app icon identify this project; the MIT License does not grant permission to use them for other products.
+
 ## 宇航员 / Astronaut pet
 
 - 素材：Pixabay 用户 ManmathVhanrao 上传的绿幕视频 “AI generated, astronaut, green screen”
@@ -19,5 +25,5 @@ python scripts/make_astro_sprites.py FRAMES public/pets/astro   # 需要 Pillow 
 
 - `public/models/u2netp.onnx`：U²-Net（small, u2netp），来自 [rembg](https://github.com/danielgatis/rembg) 发布页的 ONNX 版本
   - 论文：Qin et al., “U²-Net: Going Deeper with Nested U-Structure for Salient Object Detection”, Pattern Recognition 2020
-  - 许可：Apache-2.0（[U-2-Net](https://github.com/xuebinqin/U-2-Net)）
+  - 许可：Apache-2.0（[U-2-Net](https://github.com/xuebinqin/U-2-Net)），全文见 [public/models/LICENSE-U2Net.txt](public/models/LICENSE-U2Net.txt)
 - 运行库：[onnxruntime-web](https://github.com/microsoft/onnxruntime)（MIT），在本机 WebAssembly 中运行，图片不上传

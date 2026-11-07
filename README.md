@@ -90,6 +90,12 @@ npm run tauri build    # 打包 .app / .dmg（Windows 上是 .msi / .exe）
 
 计划见 [docs/ROADMAP.md](docs/ROADMAP.md)。
 
+### 许可证
+
+代码以 [MIT 许可证](LICENSE) 发布：可以自由使用、修改、商用，保留版权声明即可。例外：
+- 宇航员素材来自 Pixabay，抠图模型 U²-Net 适用 Apache-2.0，两者都沿用各自的许可，见 [CREDITS.md](CREDITS.md)。
+- “Pawse / 爪憩”这个名称和应用图标不在授权范围内。
+
 ---
 
 ## English
@@ -175,3 +181,9 @@ Config file: `~/Library/Application Support/io.github.pawse.desktop/config.json`
 - **A transparent always-on-top window** covers the whole screen and lets clicks through by default. Every 33 ms, Rust checks where the mouse is and takes clicks only when it's over the pet, a bubble or a menu.
 
 Roadmap (in Chinese): [docs/ROADMAP.md](docs/ROADMAP.md).
+
+### License
+
+The code is released under the [MIT License](LICENSE): use it, change it, sell it, just keep the copyright notice. Exceptions:
+- The astronaut sprites (from Pixabay) and the U²-Net model (Apache-2.0) keep their own licenses; see [CREDITS.md](CREDITS.md).
+- The name "Pawse / 爪憩" and the app icon are not covered.

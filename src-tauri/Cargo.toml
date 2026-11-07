@@ -3,6 +3,7 @@ name = "pawse"
 version = "0.1.0"
 description = "Pawse — emotional-companion desktop pet"
 edition = "2021"
+license = "MIT"
 
 [lib]
 name = "pawse_lib"
